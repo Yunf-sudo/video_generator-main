@@ -1,0 +1,66 @@
+# 通用忽略规则（与 .gitignore 语法一致）
+
+# Python 字节码与缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*$py.class
+
+# 虚拟环境目录
+venv/
+.venv/
+env/
+.python_env/
+
+# 构建与分发产物
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# 工具与测试缓存
+.cache/
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+
+# 覆盖率报告
+.coverage
+.coverage.*
+htmlcov/
+
+# 日志与临时文件
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+audio_output/
+audio_gen/
+clips/
+pics/
+session_states/
+youtube_data/
+*.cache
+
+# IDE/编辑器配置
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 项目特定文件
+temp.json
+
+# 环境变量文件（通常包含敏感信息）
+.env
+*.env
