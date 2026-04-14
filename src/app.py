@@ -48,11 +48,11 @@ DEFAULT_INPUTS = {
 }
 
 MODEL_SUMMARY = {
-    "脚本": os.getenv("SCRIPT_MODEL", "gpt-5-mini"),
-    "分镜图": os.getenv("IMAGE_MODEL", "gpt-image-1-all"),
-    "视频": os.getenv("VIDEO_MODEL", "veo_3_1"),
+    "脚本": os.getenv("SCRIPT_MODEL", "gpt-5.2-all"),
+    "分镜图": os.getenv("IMAGE_MODEL", "gpt-image-1.5-all"),
+    "视频": os.getenv("VIDEO_MODEL", "veo3.1-pro"),
     "TTS": os.getenv("TTS_MODEL", "gpt-4o-mini-tts"),
-    "竞品分析": os.getenv("YOUTUBE_ANALYSIS_MODEL", "gpt-5-mini"),
+    "竞品分析": os.getenv("YOUTUBE_ANALYSIS_MODEL", "gpt-5.2-all"),
 }
 
 
@@ -361,17 +361,22 @@ def generate_subtitles_step() -> None:
 
 
 def export_formal_video_step() -> None:
-    current_run_paths()
+    active_run = current_run_paths()
     if not all_clips_remote_ready():
         raise RuntimeError("还有场景不是远端动态片段，正式成片暂时不能导出。")
     output_name = f"wheelchair-{datetime.now().strftime('%m%d-%H%M')}.mp4"
     scene_duration_map = build_target_scene_duration_map()
+    tts_result = _coerce_dict(st.session_state.get("tts_result"))
     st.session_state["final_video_result"] = assemble_final_video(
         ordered_clip_paths(),
-        audio_path=st.session_state.get("tts_result", {}).get("file_path"),
-        srt_path=st.session_state.get("tts_result", {}).get("srt_path"),
+        audio_path=tts_result.get("file_path"),
+        srt_path=tts_result.get("srt_path"),
+        output_dir=active_run.exports,
         filename=output_name,
         scene_duration_map=scene_duration_map or None,
+        transition_name=st.session_state.get("inputs", {}).get("transition_name", "fade"),
+        transition_duration=float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.35) or 0.0),
+        aspect_ratio=st.session_state.get("inputs", {}).get("video_orientation", "9:16"),
     )
     persist_run_json("final_video_result.json", st.session_state["final_video_result"])
 

@@ -157,6 +157,7 @@ Hard requirements:
 - respect the requested aspect ratio, especially portrait composition for 9:16 delivery
 - no text overlays
 - no watermark
+- silent visual-only footage; do not generate native audio, music, dialogue, voice-over, captions, or sound effects
 - adults only if needed
 - if rider identity, age, ethnicity, wardrobe, or family-role details are explicitly specified in the scene details or continuity notes, preserve them exactly
 - only when the rider is not explicitly specified should you default to a healthy-looking adult around 30-55, not an elderly patient stereotype

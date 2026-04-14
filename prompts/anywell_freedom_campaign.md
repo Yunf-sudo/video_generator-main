@@ -5,7 +5,7 @@ Use this brief as a hard creative and compliance boundary for the AnyWell campai
 Creative north star:
 - Beyond Mobility. We Defend Dignity.
 - Freedom, companionship, and returning to the outdoors.
-- Mature American brand-film tone.
+- Mature North American and Western European brand-film tone.
 - Realistic cinematic framing, never sensational or pity-driven.
 
 What to avoid:
@@ -25,7 +25,7 @@ Visual direction:
 - Avoid environmental text overlays; the product's own visible design details may remain if they are part of the real reference photos.
 
 Copy direction:
-- English-first copy for the U.S. market.
+- English-first copy for North American and Western European markets.
 - Calm, restrained, brand-level phrasing.
 - Emotional truth over technical jargon.
 - Light CTA only.

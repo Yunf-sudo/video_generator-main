@@ -25,7 +25,7 @@ CACHE_PATH = cache_root() / "product_visual_structure_cache.json"
 LEGACY_CACHE_PATHS = [
     PROJECT_ROOT / "product_visual_structure_cache.json",
 ]
-VISION_MODEL = os.getenv("VISION_MODEL", os.getenv("META_MODEL", "gpt-5-mini"))
+VISION_MODEL = os.getenv("VISION_MODEL", os.getenv("META_MODEL", "gpt-5.2-all"))
 VISION_TIMEOUT_SECONDS = float(os.getenv("VISION_TIMEOUT_SECONDS", "45"))
 client = OpenAI(
     base_url="http://jeniya.cn/v1",
@@ -86,8 +86,8 @@ def _encode_reference_image(path: str, max_edge: int = 1280, jpeg_quality: int =
     return f"data:{mime};base64,{encoded_text}"
 
 
-def _reference_cache_key(reference_image_paths: list[str]) -> str:
-    parts: list[str] = []
+def _reference_cache_key(reference_image_paths: list[str], model: str = VISION_MODEL) -> str:
+    parts: list[str] = [f"model={model}"]
     for raw_path in reference_image_paths:
         path = Path(raw_path).resolve()
         stat = path.stat()

@@ -20,7 +20,7 @@ client = OpenAI(
   api_key=os.getenv("JENIYA_API_TOKEN"),
 )
 
-DEFAULT_SCRIPT_MODEL = os.getenv("SCRIPT_MODEL", "gpt-5-mini")
+DEFAULT_SCRIPT_MODEL = os.getenv("SCRIPT_MODEL", "gpt-5.2-all")
 
 
 def _loads_script_json(content: str) -> dict:

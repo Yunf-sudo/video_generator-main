@@ -18,7 +18,7 @@ load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("JENIYA_API_TOKEN")
 OPENROUTER_URL = os.getenv("JIANYI_ENDPOINT", "http://jeniya.cn/v1/chat/completions")
-DEFAULT_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1-all")
+DEFAULT_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1.5-all")
 def _http_session() -> requests.Session:
     session = requests.Session()
     session.trust_env = False

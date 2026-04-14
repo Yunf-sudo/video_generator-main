@@ -133,7 +133,7 @@ def copy_to_local_storage(file_path: str, bucket_name: str, object_name: Optiona
 def _video_size_for_ratio(aspect_ratio: str) -> tuple[int, int]:
     mapping = {
         "16:9": (1280, 720),
-        "9:16": (720, 1280),
+        "9:16": (1080, 1920),
         "1:1": (1080, 1080),
     }
     return mapping.get(aspect_ratio, (1280, 720))
@@ -462,6 +462,7 @@ def _merge_videos_with_transitions(
     transition_duration: float = 0.35,
     aspect_ratio: str = "9:16",
 ) -> str:
+    width, height = _video_size_for_ratio(aspect_ratio)
     if len(video_paths) < 2 or transition_duration <= 0:
         manifest_path = _write_concat_manifest(video_paths, output_dir)
         merged_video_path = output_dir / f"merged_{uuid.uuid4().hex}.mp4"
@@ -475,6 +476,9 @@ def _merge_videos_with_transitions(
                 "0",
                 "-i",
                 str(manifest_path),
+                "-vf",
+                f"fps=24,scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height},setsar=1,format=yuv420p",
                 "-c:v",
                 "libx264",
                 "-pix_fmt",
@@ -488,7 +492,6 @@ def _merge_videos_with_transitions(
         )
         return str(merged_video_path)
 
-    width, height = _video_size_for_ratio(aspect_ratio)
     normalized_streams: list[str] = []
     filter_parts: list[str] = []
     clip_durations: list[float] = []

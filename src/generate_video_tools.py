@@ -30,8 +30,12 @@ load_dotenv()
 
 API_HOST = "jeniya.cn"
 API_PATH = "/v1/video/create"
-VIDEO_MODEL = os.getenv("VIDEO_MODEL", "veo_3_1")
+VIDEO_MODEL = os.getenv("VIDEO_MODEL", "veo3.1-pro")
 VIDEO_REFERENCE_MODE = os.getenv("VIDEO_REFERENCE_MODE", "image").strip().lower()
+VIDEO_SIZE = os.getenv("VIDEO_SIZE", "large").strip() or "large"
+VIDEO_ENHANCE_PROMPT = os.getenv("VIDEO_ENHANCE_PROMPT", "true").strip().lower() in {"1", "true", "yes", "on"}
+VIDEO_ENABLE_UPSAMPLE = os.getenv("VIDEO_ENABLE_UPSAMPLE", "true").strip().lower() in {"1", "true", "yes", "on"}
+VIDEO_GENERATE_AUDIO = os.getenv("VIDEO_GENERATE_AUDIO", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _file_to_data_url(file_path: str | None) -> str | None:
@@ -93,7 +97,9 @@ def generate_video_from_image_url(
         "enable_upsample": enable_upsample,
         "aspect_ratio": aspect_ratio,
         "orientation": _orientation_for_ratio(aspect_ratio),
-        "size": "small",
+        "size": VIDEO_SIZE,
+        "generate_audio": VIDEO_GENERATE_AUDIO,
+        "audio": VIDEO_GENERATE_AUDIO,
     }
     images = [value for value in [image_url, *(extra_image_urls or []), last_frame_url] if value]
     if images:
@@ -279,6 +285,9 @@ def _create_remote_video_with_retries(
             return generate_video_from_image_url(
                 image_url,
                 prompt=prompt,
+                model=VIDEO_MODEL,
+                enhance_prompt=VIDEO_ENHANCE_PROMPT,
+                enable_upsample=VIDEO_ENABLE_UPSAMPLE,
                 last_frame_url=last_frame_url,
                 aspect_ratio=aspect_ratio,
                 extra_image_urls=extra_image_urls,
@@ -500,6 +509,7 @@ def generate_video_from_image_path(
             if not until_finish:
                 return {
                     "video_id": video_id,
+                    "video_model": VIDEO_MODEL,
                     "image_url": attempt["image_url"],
                     "extra_image_urls": attempt.get("extra_image_urls") or [],
                     "last_frame_url": attempt["last_frame_url"],
@@ -512,6 +522,7 @@ def generate_video_from_image_path(
             if not video_url:
                 raise RuntimeError("Remote video finished without a downloadable URL.")
             downloaded = _download_completed_video(video_id, video_url, clips_dir)
+            downloaded["video_model"] = VIDEO_MODEL
             downloaded["planned_duration_seconds"] = duration_seconds
             downloaded["video_prompt"] = attempt["prompt"]
             return downloaded

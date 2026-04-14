@@ -24,13 +24,14 @@ client = OpenAI(
   api_key=os.getenv("JENIYA_API_TOKEN"),
 )
 
-DEFAULT_META_MODEL = os.getenv("META_MODEL", "gpt-5-mini")
+DEFAULT_META_MODEL = os.getenv("META_MODEL", "gpt-5.2-all")
 
 
 def _load_json(content: str) -> dict:
-    if json_repair is not None:
-        return json_repair.loads(content)
-    return json.loads(content)
+    payload = json_repair.loads(content) if json_repair is not None else json.loads(content)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected title metadata JSON object, got {type(payload).__name__}.")
+    return payload
 
 
 def _fallback_intro(video_info: dict) -> tuple[dict, list[dict]]:

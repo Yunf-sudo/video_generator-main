@@ -14,10 +14,10 @@ load_dotenv()
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 DEFAULT_ANALYSIS_MODELS = [
     model.strip()
-    for model in os.getenv("YOUTUBE_ANALYSIS_FALLBACK_MODELS", "gpt-5-mini,gpt-4o-mini,qwen3.6-plus").split(",")
+    for model in os.getenv("YOUTUBE_ANALYSIS_FALLBACK_MODELS", "gpt-5.2-all,gpt-5-mini,gpt-4o-mini,qwen3.6-plus").split(",")
     if model.strip()
 ]
-PRIMARY_ANALYSIS_MODEL = os.getenv("YOUTUBE_ANALYSIS_MODEL", DEFAULT_ANALYSIS_MODELS[0] if DEFAULT_ANALYSIS_MODELS else "gpt-5-mini")
+PRIMARY_ANALYSIS_MODEL = os.getenv("YOUTUBE_ANALYSIS_MODEL", DEFAULT_ANALYSIS_MODELS[0] if DEFAULT_ANALYSIS_MODELS else "gpt-5.2-all")
 
 client = OpenAI(
     base_url="http://jeniya.cn/v1",

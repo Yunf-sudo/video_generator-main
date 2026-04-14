@@ -35,7 +35,8 @@ def generate_storyboard(
     ret = []
     prompt_context = build_prompt_context(meta)
     use_product_reference_images = bool(meta.get("use_product_reference_images", True))
-    product_reference_paths = get_product_reference_images() if use_product_reference_images else []
+    product_reference_limit = int(meta.get("product_reference_image_limit", 5) or 5)
+    product_reference_paths = get_product_reference_images(limit=product_reference_limit) if use_product_reference_images else []
     continuity_reference_paths = list(reference_image_paths or [])
     product_reference_signature = meta.get("product_reference_signature")
     if product_reference_signature is None:

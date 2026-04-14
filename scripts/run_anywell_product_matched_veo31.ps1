@@ -6,7 +6,7 @@ $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 
 python scripts/run_anywell_campaign.py `
-  --config configs/anywell_freedom_campaign_product_matched_remote.json `
+  --config configs/anywell_freedom_campaign.json `
   --prompt prompts/anywell_freedom_campaign.md `
   --output-root outputs/anywell_campaign_veo31_best `
   --log-path logs/anywell_campaign_veo31_best.log `

@@ -48,7 +48,7 @@ def _sample_evenly(paths: list[Path], limit: int) -> list[Path]:
     return sampled
 
 
-def get_product_reference_images(limit: int = 3) -> list[str]:
+def get_product_reference_images(limit: int = 5) -> list[str]:
     reference_dir = _find_reference_dir()
     if reference_dir is None:
         return []
@@ -62,10 +62,13 @@ def get_product_reference_images(limit: int = 3) -> list[str]:
         if (reference_dir / basename).exists()
     ]
     if preferred_paths:
-        image_paths = preferred_paths + [
+        remaining_paths = [
             path for path in image_paths if path.name not in PREFERRED_REFERENCE_BASENAMES
         ]
-    sampled = _sample_evenly(image_paths, limit=limit)
+        sampled = preferred_paths[:limit]
+        sampled.extend(_sample_evenly(remaining_paths, limit=limit - len(sampled)))
+    else:
+        sampled = _sample_evenly(image_paths, limit=limit)
     return [str(path.resolve()) for path in sampled]
 
 

@@ -130,6 +130,7 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
         "preferred_runtime_seconds": sum(int(scene["duration_seconds"]) for scene in scenes),
         "reference_style": concept.get("reference_style", ""),
         "use_product_reference_images": use_product_reference_images,
+        "product_reference_image_limit": int(campaign.get("product_reference_image_limit", 5) or 5),
         "product_reference_signature": explicit_signature if explicit_signature else None,
         "product_visual_structure": explicit_structure if explicit_structure else None,
         "continuity_rider_anchor": concept.get(
@@ -280,6 +281,7 @@ def _summary_markdown(results: list[dict[str, Any]], output_root: Path) -> str:
                 f"Run root: {result.get('run_root', '')}",
                 f"Storyboard mode(s): {', '.join(result.get('storyboard_modes', [])) or 'n/a'}",
                 f"Video mode(s): {', '.join(result.get('video_modes', [])) or 'n/a'}",
+                f"Video model(s): {', '.join(result.get('video_models', [])) or 'n/a'}",
                 f"Audio path: {result.get('audio_path', '')}",
                 f"Subtitle path: {result.get('subtitle_path', '')}",
                 f"Final video: {result.get('final_video_path', '')}",
@@ -529,6 +531,7 @@ def _run_single_concept(
         "run_root": str(run_paths.root.resolve()),
         "storyboard_modes": sorted({frame.get("image_generation_mode", "unknown") for frame in storyboard}),
         "video_modes": sorted({result.get("generation_mode", "unknown") for result in resolved.values()}),
+        "video_models": sorted({result.get("video_model", "") for result in resolved.values() if result.get("video_model")}),
         "audio_url": audio_url,
         "audio_path": copied_audio_path,
         "audio_duration_seconds": audio_duration,
