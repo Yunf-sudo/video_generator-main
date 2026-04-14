@@ -8,7 +8,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import cv2
 import numpy as np
@@ -23,6 +23,7 @@ from product_reference_images import (
     get_product_reference_signature,
     get_product_visual_structure_json,
 )
+from rustfs_util import upload_file_to_rustfs
 from workspace_paths import ensure_active_run
 
 
@@ -30,12 +31,147 @@ load_dotenv()
 
 API_HOST = "jeniya.cn"
 API_PATH = "/v1/video/create"
+VIDEO_PROVIDER = os.getenv("VIDEO_PROVIDER", "jeniya").strip().lower()
 VIDEO_MODEL = os.getenv("VIDEO_MODEL", "veo3.1-pro")
 VIDEO_REFERENCE_MODE = os.getenv("VIDEO_REFERENCE_MODE", "image").strip().lower()
 VIDEO_SIZE = os.getenv("VIDEO_SIZE", "large").strip() or "large"
 VIDEO_ENHANCE_PROMPT = os.getenv("VIDEO_ENHANCE_PROMPT", "true").strip().lower() in {"1", "true", "yes", "on"}
 VIDEO_ENABLE_UPSAMPLE = os.getenv("VIDEO_ENABLE_UPSAMPLE", "true").strip().lower() in {"1", "true", "yes", "on"}
 VIDEO_GENERATE_AUDIO = os.getenv("VIDEO_GENERATE_AUDIO", "false").strip().lower() in {"1", "true", "yes", "on"}
+VIDEO_302_SUBMIT_URL = os.getenv("VIDEO_302_SUBMIT_URL", "https://api.302.ai/302/submit/veo3-pro-frames").strip()
+VIDEO_302_QUERY_URL = os.getenv("VIDEO_302_QUERY_URL", VIDEO_302_SUBMIT_URL).strip()
+VIDEO_302_IMAGE_BUCKET = os.getenv("VIDEO_302_IMAGE_BUCKET", "video-input-images").strip() or "video-input-images"
+
+
+def _is_302_provider() -> bool:
+    return VIDEO_PROVIDER in {"302", "302ai", "302.ai", "302-ai"}
+
+
+def _video_api_token(token: Optional[str] = None) -> str:
+    if token:
+        return token
+    if _is_302_provider():
+        value = (
+            os.getenv("V302_API_KEY")
+            or os.getenv("VIDEO_302_API_KEY")
+            or os.getenv("302_API_KEY")
+            or os.getenv("JENIYA_API_TOKEN")
+        )
+        if not value:
+            raise ValueError("Missing V302_API_KEY for 302.ai video generation.")
+        return value.strip().strip('"')
+    value = os.getenv("JENIYA_API_TOKEN")
+    if not value:
+        raise ValueError("Missing JENIYA_API_TOKEN for remote video generation.")
+    return value.strip().strip('"')
+
+
+def _request_json(method: str, url: str, token: str, payload_json: Optional[dict[str, Any]] = None) -> Dict[str, Any]:
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"Invalid API URL: {url}")
+    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    conn = connection_cls(parsed.netloc, timeout=60)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+
+    body = json.dumps(payload_json or {}, ensure_ascii=False).encode("utf-8") if payload_json is not None else b""
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    conn.request(method.upper(), path, body=body if payload_json is not None else None, headers=headers)
+    res = conn.getresponse()
+    raw = res.read()
+    text = raw.decode("utf-8", errors="replace")
+    if res.status < 200 or res.status >= 300:
+        raise RuntimeError(f"API request failed: {res.status} {res.reason}; response: {text}")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
+
+
+def _append_query(url: str, params: dict[str, str]) -> str:
+    parsed = urlparse(url)
+    existing = parsed.query
+    extra = urlencode(params)
+    query = f"{existing}&{extra}" if existing else extra
+    return parsed._replace(query=query).geturl()
+
+
+def _find_video_url(value: Any) -> str | None:
+    if isinstance(value, str):
+        if value.startswith(("http://", "https://")) and (".mp4" in value or "video" in value):
+            return value
+        return None
+    if isinstance(value, dict):
+        for key in ("upsample_video_url", "video_url", "url"):
+            found = _find_video_url(value.get(key))
+            if found:
+                return found
+        for nested in value.values():
+            found = _find_video_url(nested)
+            if found:
+                return found
+    if isinstance(value, list):
+        for item in value:
+            found = _find_video_url(item)
+            if found:
+                return found
+    return None
+
+
+def _extract_video_id(response: dict[str, Any]) -> str | None:
+    for key in ("id", "video_id", "task_id", "request_id"):
+        value = response.get(key)
+        if value:
+            return str(value)
+    data = response.get("data")
+    if isinstance(data, str) and data.strip():
+        return data.strip()
+    if isinstance(data, dict):
+        for key in ("id", "video_id", "task_id", "request_id"):
+            value = data.get(key)
+            if value:
+                return str(value)
+    return None
+
+
+def _extract_status(response: dict[str, Any]) -> str | None:
+    status = response.get("status") or response.get("code")
+    data = response.get("data")
+    if status is None and isinstance(data, dict):
+        status = data.get("status") or data.get("task_status") or data.get("code")
+    if status is None and _find_video_url(response):
+        return "completed"
+    if status is None:
+        return None
+    raw = str(status).strip().lower()
+    if raw in {"completed", "complete", "succeeded", "succeed", "success", "done", "10000"}:
+        return "completed"
+    if raw in {"failed", "failure", "error", "canceled", "cancelled"}:
+        return "failed"
+    return raw
+
+
+def _upload_image_for_remote_video(file_path: str | None) -> str | None:
+    if not file_path:
+        return None
+    if not _is_302_provider():
+        return _file_to_data_url(file_path)
+    resolved = Path(file_path)
+    if not resolved.exists():
+        return None
+    object_name = f"{uuid.uuid4().hex}{resolved.suffix or '.jpg'}"
+    url = upload_file_to_rustfs(str(resolved), VIDEO_302_IMAGE_BUCKET, object_name=object_name)
+    if not url.startswith(("http://", "https://")):
+        raise RuntimeError(
+            "302.ai requires a public HTTP(S) input image URL, but image upload did not return one."
+        )
+    return url
 
 
 def _file_to_data_url(file_path: str | None) -> str | None:
@@ -84,10 +220,22 @@ def generate_video_from_image_url(
     last_frame_url: Optional[str] = None,
     extra_image_urls: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
-    if not token:
-        token = os.getenv("JENIYA_API_TOKEN")
-    if not token:
-        raise ValueError("Missing JENIYA_API_TOKEN for remote video generation.")
+    token = _video_api_token(token)
+
+    if _is_302_provider():
+        if not image_url:
+            raise ValueError("302.ai veo3-pro-frames requires input_image.")
+        payload_json = {
+            "text_prompt": prompt,
+            "input_image": image_url,
+        }
+        response = _request_json("POST", VIDEO_302_SUBMIT_URL, token, payload_json)
+        video_id = _extract_video_id(response)
+        if video_id and "id" not in response:
+            response["id"] = video_id
+        response["provider"] = "302.ai"
+        response["model"] = VIDEO_MODEL
+        return response
 
     conn = http.client.HTTPSConnection(API_HOST, timeout=60)
     payload_json = {
@@ -127,10 +275,13 @@ def generate_video_from_image_url(
 
 
 def query_video(video_id: str, token: Optional[str] = None) -> Dict[str, Any]:
-    if not token:
-        token = os.getenv("JENIYA_API_TOKEN")
-    if not token:
-        raise ValueError("Missing JENIYA_API_TOKEN for remote video querying.")
+    token = _video_api_token(token)
+
+    if _is_302_provider():
+        query_url = _append_query(VIDEO_302_QUERY_URL, {"request_id": video_id})
+        response = _request_json("GET", query_url, token)
+        response["provider"] = "302.ai"
+        return response
 
     conn = http.client.HTTPSConnection(API_HOST, timeout=60)
     query = urlencode({"id": video_id})
@@ -183,16 +334,10 @@ def wait_for_video_completion(
                 continue
             raise
 
-        status = resp.get("status")
-        if status is None and isinstance(resp.get("data"), dict):
-            status = resp["data"].get("status")
+        status = _extract_status(resp)
+        video_url = _find_video_url(resp)
 
-        if status == "completed":
-            video_url = resp.get("video_url")
-            if video_url is None and isinstance(resp.get("data"), dict):
-                video_url = resp["data"].get("video_url")
-            if video_url is None and isinstance(resp.get("detail"), dict):
-                video_url = resp["detail"].get("video_url")
+        if status == "completed" or video_url:
             return resp, video_url
 
         if status in {"failed", "error", "canceled", "cancelled"}:
@@ -433,12 +578,13 @@ def generate_video_from_image_path(
         product_visual_structure=product_visual_structure,
     )
     product_reference_urls = []
-    if include_product_reference_images:
+    allow_product_reference_images_in_video = bool((meta or {}).get("allow_product_reference_images_in_video", False))
+    if include_product_reference_images and allow_product_reference_images_in_video:
         reference_source_paths = product_reference_paths
         if reference_source_paths is None:
             reference_source_paths = get_product_reference_images(limit=1 if strict_reference_only else 2)
         product_reference_urls = [
-            _file_to_data_url(path)
+            _upload_image_for_remote_video(path)
             for path in reference_source_paths
             if Path(path).resolve() != Path(cropped_path).resolve()
         ]
@@ -459,9 +605,9 @@ def generate_video_from_image_path(
     if _should_use_reference_images():
         remote_attempts.append(
             {
-                "image_url": _file_to_data_url(cropped_path),
+                "image_url": _upload_image_for_remote_video(cropped_path),
                 "extra_image_urls": product_reference_urls,
-                "last_frame_url": _file_to_data_url(last_frame) if last_frame else None,
+                "last_frame_url": _upload_image_for_remote_video(last_frame) if last_frame else None,
                 "prompt": prompt_text,
             }
         )
@@ -503,7 +649,7 @@ def generate_video_from_image_path(
                 aspect_ratio,
                 extra_image_urls=attempt.get("extra_image_urls"),
             )
-            video_id = response.get("id")
+            video_id = _extract_video_id(response)
             if not video_id:
                 raise ValueError("Remote video API did not return a video_id.")
             if not until_finish:
@@ -518,7 +664,7 @@ def generate_video_from_image_path(
                     "planned_duration_seconds": duration_seconds,
                 }
 
-            _, video_url = wait_for_video_completion(video_id, token=os.getenv("JENIYA_API_TOKEN"))
+            _, video_url = wait_for_video_completion(video_id)
             if not video_url:
                 raise RuntimeError("Remote video finished without a downloadable URL.")
             downloaded = _download_completed_video(video_id, video_url, clips_dir)
@@ -557,7 +703,7 @@ def get_video_path_from_video_id(video_id: str):
 
     clips_dir = ensure_active_run().clips
     clips_dir.mkdir(parents=True, exist_ok=True)
-    resp, video_url = wait_for_video_completion(video_id, token=os.getenv("JENIYA_API_TOKEN"))
+    resp, video_url = wait_for_video_completion(video_id)
     if not video_url:
         return {
             "video_id": video_id,

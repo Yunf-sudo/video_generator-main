@@ -17,7 +17,8 @@ def build_prompt_context(meta: dict | None = None) -> dict[str, str]:
     if use_reference_images:
         reference_image_instruction = (
             "When official product reference images, a product reference signature, or a product visual structure are "
-            "provided, treat them as hard guidance and keep the same wheelchair identity across every scene."
+            "provided, treat them as hard identity guidance and keep the same wheelchair identity across every scene, "
+            "but never reproduce the white studio background or insert a product-photo packshot into the ad."
         )
     else:
         reference_image_instruction = (

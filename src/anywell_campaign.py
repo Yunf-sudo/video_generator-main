@@ -153,6 +153,12 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
             "video_reference_strategy",
             campaign.get("video_reference_strategy", "full"),
         ),
+        "allow_product_reference_images_in_video": bool(
+            concept.get(
+                "allow_product_reference_images_in_video",
+                campaign.get("allow_product_reference_images_in_video", False),
+            )
+        ),
         "video_strict_reference_only": bool(
             concept.get(
                 "video_strict_reference_only",
@@ -544,6 +550,7 @@ def _run_single_concept(
         "product_reference_images": product_reference_paths,
         "used_product_reference_images": bool(script["meta"].get("use_product_reference_images")),
         "video_reference_strategy": video_reference_strategy,
+        "allow_product_reference_images_in_video": bool(script["meta"].get("allow_product_reference_images_in_video", False)),
         "strict_reference_only": strict_reference_only,
         "reused_storyboard_json": reuse_storyboard_json,
         "use_last_frame_reference": use_last_frame_reference,

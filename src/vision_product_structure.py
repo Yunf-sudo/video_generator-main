@@ -146,6 +146,8 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
             "text": (
                 "Analyze the wheelchair shown in these white-background product photos. "
                 "Identify only visible physical structure and appearance. "
+                "For advertising generation, treat any rear/lower removable battery pack or exposed battery cable as an omitted accessory, not a required visible feature. "
+                "Do not describe folded, semi-folded, collapsed, storage, or folding/unfolding configurations as required output; the product should be represented in normal open riding position. "
                 "Return one valid JSON object with these keys exactly: "
                 "summary, frame, seat_and_backrest, armrests, controller, side_housing, rear_wheels, "
                 "front_casters, footrests, rear_details, colors_and_materials, must_keep, must_avoid. "
@@ -165,7 +167,7 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
                 "content": (
                     "You are a product visual structure analyst. "
                     "You inspect multiple reference photos of the same product and summarize the exact visible structure. "
-                    "Be strict about observable geometry and appearance."
+                    "Be strict about observable geometry and appearance, while excluding rear/lower removable battery packs, exposed battery cables, and folding-state demonstrations from required advertising visuals."
                 ),
             },
             {

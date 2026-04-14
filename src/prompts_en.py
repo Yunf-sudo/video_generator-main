@@ -9,9 +9,16 @@ Product consistency is mandatory across the entire ad:
 - same colorway
 - same frame silhouette
 - same front and rear wheel size
-- same armrest, footrest, joystick, battery, and seat structure
+- same armrest, footrest, joystick, side housing, and seat structure
 - no random redesigns between scenes
 - {reference_image_instruction}
+- show the wheelchair only in its normal open riding position
+- do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration
+- do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded
+- never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
+- for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller; no hands-free autonomous wheelchair movement
+- if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles
+- white-background product reference photos are identity references only; never reproduce a white studio background, packshot, cutaway, or product-photo flash frame in the ad
 
 External style reference:
 {reference_style}
@@ -112,6 +119,13 @@ Rules:
 - Preserve product consistency in frame shape, color, joystick position, wheel size, seat design, armrest, and footrest.
 - If a product reference signature is provided in the structured input, match it exactly.
 - If a product visual structure JSON is provided in the structured input, treat it as a hard control specification for visible geometry and component layout.
+- The wheelchair must be in normal open riding position only.
+- Do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration.
+- Do not use rear-facing or rear three-quarter product views. Keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded.
+- Never render a rectangular box mounted behind or below the seat. The under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space.
+- If the chair is moving under the rider's control, show the rider's right hand visibly resting on or gently holding the right-side joystick controller.
+- If the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles.
+- Treat white-background product photos only as identity references. Never reproduce a white studio background, packshot, cutaway, or product-photo flash frame.
 - Never convert the product into a manual wheelchair, transport chair, hospital chair, or mobility scooter.
 - Make the frame look like a live-action premium commerce storyboard keyframe for an actual advertisement shoot.
 - The image must feel realistic, production-ready, and physically shootable tomorrow with a real crew.
@@ -149,6 +163,13 @@ Hard requirements:
 - if a product reference signature is provided in the scene details, match it exactly
 - if a product visual structure JSON is provided in the scene details, treat it as a hard control specification for visible geometry and component layout
 - do not redesign the wheelchair between shots
+- keep the wheelchair in normal open riding position only
+- do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration
+- do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded
+- never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
+- for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller
+- if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles
+- white-background product reference photos are identity references only; never reproduce a white studio background, packshot, cutaway, or product-photo flash frame in the video
 - never change the powered wheelchair into a manual wheelchair, transport chair, or mobility scooter
 - realistic motion and physics, not a slideshow, not a looped replay
 - no morphing, no object drift, no warped anatomy, no jumpy action, no sudden scene resets
