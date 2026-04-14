@@ -15,6 +15,8 @@ Product consistency is mandatory across the entire ad:
 - show the wheelchair only in its normal open riding position
 - do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration
 - do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded
+- never place the camera behind the rider; the viewer should see the rider's front torso or soft facial profile plus the right forearm/hand on the right-side joystick
+- do not make the backrest/back panel or rear red detail the hero feature; prioritize front caster, joystick, armrest, side housing, seat, and wheel profile
 - never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
 - for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller; no hands-free autonomous wheelchair movement
 - if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles
@@ -122,6 +124,8 @@ Rules:
 - The wheelchair must be in normal open riding position only.
 - Do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration.
 - Do not use rear-facing or rear three-quarter product views. Keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded.
+- Never place the camera behind the rider. The storyboard must show the rider's front torso or soft facial profile, plus the right forearm and hand on the right-side joystick when self-operated.
+- Do not make the chair backrest, back panel, or rear red detail the visual focus. Prioritize joystick-side front-profile, front caster, armrest, side housing, seat, and wheel profile.
 - Never render a rectangular box mounted behind or below the seat. The under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space.
 - If the chair is moving under the rider's control, show the rider's right hand visibly resting on or gently holding the right-side joystick controller.
 - If the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles.
@@ -166,6 +170,8 @@ Hard requirements:
 - keep the wheelchair in normal open riding position only
 - do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration
 - do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded
+- never place the camera behind the rider; the video must show the rider's front torso or soft facial profile plus the right forearm/hand on the right-side joystick during self-operated motion
+- do not feature the backrest/back panel or rear red detail; keep the visual emphasis on joystick-side front-profile riding, front caster, armrest, side housing, seat, and wheel profile
 - never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
 - for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller
 - if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles
@@ -178,7 +184,6 @@ Hard requirements:
 - respect the requested aspect ratio, especially portrait composition for 9:16 delivery
 - no text overlays
 - no watermark
-- silent visual-only footage; do not generate native audio, music, dialogue, voice-over, captions, or sound effects
 - adults only if needed
 - if rider identity, age, ethnicity, wardrobe, or family-role details are explicitly specified in the scene details or continuity notes, preserve them exactly
 - only when the rider is not explicitly specified should you default to a healthy-looking adult around 30-55, not an elderly patient stereotype

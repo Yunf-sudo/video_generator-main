@@ -11,7 +11,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the AnyWell emotional campaign content-generation test.")
     parser.add_argument("--config", default="configs/anywell_freedom_campaign.json", help="Path to campaign config JSON.")
     parser.add_argument("--prompt", default="prompts/anywell_freedom_campaign.md", help="Path to campaign prompt/guardrails file.")
-    parser.add_argument("--output-root", default="outputs/anywell_campaign", help="Directory for packaged deliverables.")
+    parser.add_argument(
+        "--output-root",
+        default="generated/deliverables/anywell_campaign",
+        help="Directory for intermediate campaign deliverables. Copy final videos to outputs/final for handoff.",
+    )
     parser.add_argument("--log-path", default="logs/anywell_campaign_run.log", help="Path to run log file.")
     parser.add_argument("--summary-path", default="reports/anywell_campaign_summary.md", help="Path to markdown summary report.")
     parser.add_argument("--max-concepts", type=int, default=None, help="Optional limit on how many concepts to run.")

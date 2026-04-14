@@ -20,6 +20,9 @@ PRODUCT_VISUAL_EXCLUSION_RULES = (
     "Never use a rear-facing or rear three-quarter product angle for ad generation. Keep the back panel and lower rear quadrant "
     "out of frame or fully occluded. Do not render any rectangular box mounted behind or below the seat; that area should read as "
     "open tubular frame, wheel shadow, or plain dark under-seat space. Prefer front, front three-quarter, or joystick-side front-profile framing. "
+    "The camera must not sit behind the rider; in lifestyle scenes the viewer should be able to see the rider's front torso, "
+    "soft facial profile, right forearm, and right-side joystick hand. Treat rear backrest color details as nonessential for advertising shots; "
+    "do not rotate backward just to show the back panel. "
     "Use the white-background photos only for product identity; never reproduce the white studio background, packshot, cutaway, or product-photo flash frame."
 )
 REAR_DETAIL_BLOCKLIST = (
@@ -31,11 +34,15 @@ REAR_DETAIL_BLOCKLIST = (
     "rear backrest panel",
     "back panel with storage",
     "mounting point",
+    "red backrest",
+    "red fabric strip",
+    "red mesh",
+    "backrest accent",
 )
 PREFERRED_REFERENCE_BASENAMES = [
+    "DSC_0384.JPG",
     "DSC_0395.JPG",
     "DSC_0401.JPG",
-    "DSC_0400.JPG",
 ]
 
 
@@ -103,14 +110,48 @@ def get_product_reference_signature() -> str:
     return (
         "Match the real wheelchair from the white-background product photos exactly. "
         "It is a compact electric wheelchair shown in normal open riding position with a metallic silver-gray tubular frame, black armrests, "
-        "a black seat cushion and black backrest, and a distinct red fabric strip across the top of the backrest. "
+        "a black seat cushion and black backrest. "
         "There is a joystick controller mounted on the rider's right side above the armrest and a dark gray side housing "
         "with a smooth wave-like contour under the armrest, large rear drive wheels with silver hub covers and red center caps, "
         "small black front casters with thin multi-spoke rims, and black swing-away footrests and footplates. "
         "Do not replace it with a generic rehab wheelchair, molded shell chair, thick-spoke manual chair, or a different frame shape. "
-        "Keep the same proportions, frame geometry, wheel layout, armrest shape, controller placement, and red backrest accent as the real product photos. "
+        "Keep the same proportions, frame geometry, wheel layout, armrest shape, controller placement, side housing, and wheel hubs as the real product photos. "
         f"{PRODUCT_VISUAL_EXCLUSION_RULES}"
     )
+
+
+def _strip_rear_detail_language(text: str) -> str:
+    replacements = {
+        "rectangular back panel with branding; red accent strip at top rear": "black fabric backrest visible only as a side or front edge",
+        "rectangular back panel with branding": "black fabric backrest visible only as a side or front edge",
+        "red accent strip at top rear": "small side-visible red hub accent",
+        "red accent elements": "small side-visible red hub accents",
+        "red mesh upper back panel": "small side-visible red hub accents",
+        "red fabric strip across the top of the backrest": "small side-visible red hub accents",
+        "distinct red fabric strip across the top of the backrest": "small side-visible red hub accents",
+        "red backrest accent": "small side-visible red hub accents",
+        "red accent on backrest": "small side-visible red hub accent",
+        "red upholstery accent": "small side-visible red hub accent",
+    }
+    cleaned = text
+    for old, new in replacements.items():
+        cleaned = cleaned.replace(old, new)
+    return cleaned
+
+
+def _coerce_text_items(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if ";" in text:
+            return [part.strip() for part in text.split(";") if part.strip()]
+        if "," in text:
+            return [part.strip() for part in text.split(",") if part.strip()]
+        return [text]
+    return []
 
 
 def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
@@ -121,25 +162,25 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
     sanitized.pop("rear_details", None)
 
     must_keep = []
-    for item in sanitized.get("must_keep", []) or []:
+    for item in _coerce_text_items(sanitized.get("must_keep")):
         text = str(item).strip()
         lowered = text.lower()
         if any(term in lowered for term in REAR_DETAIL_BLOCKLIST):
             continue
-        must_keep.append(text)
+        must_keep.append(_strip_rear_detail_language(text))
     if must_keep:
         sanitized["must_keep"] = must_keep
 
-    colors = str(sanitized.get("colors_and_materials") or "")
-    if colors:
-        sanitized["colors_and_materials"] = colors.replace(
-            "red accent on backrest",
-            "small red upholstery accent only if naturally visible from a front-side angle",
-        )
+    for key, value in list(sanitized.items()):
+        if isinstance(value, str):
+            sanitized[key] = _strip_rear_detail_language(value)
 
-    must_avoid = [str(item).strip() for item in sanitized.get("must_avoid", []) or [] if str(item).strip()]
+    must_avoid = _coerce_text_items(sanitized.get("must_avoid"))
     for item in [
         "rear-facing or rear three-quarter product angles",
+        "camera placed behind the rider",
+        "viewer's main view of the rider's back",
+        "rear backrest color as a hero detail",
         "visible back panel and lower rear quadrant",
         "rectangular box behind or below the seat",
         "rear/lower battery pack or exposed cables",

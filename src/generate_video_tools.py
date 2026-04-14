@@ -40,6 +40,7 @@ VIDEO_ENABLE_UPSAMPLE = os.getenv("VIDEO_ENABLE_UPSAMPLE", "true").strip().lower
 VIDEO_GENERATE_AUDIO = os.getenv("VIDEO_GENERATE_AUDIO", "false").strip().lower() in {"1", "true", "yes", "on"}
 VIDEO_302_SUBMIT_URL = os.getenv("VIDEO_302_SUBMIT_URL", "https://api.302.ai/302/submit/veo3-pro-frames").strip()
 VIDEO_302_QUERY_URL = os.getenv("VIDEO_302_QUERY_URL", VIDEO_302_SUBMIT_URL).strip()
+VIDEO_302_UPLOAD_URL = os.getenv("VIDEO_302_UPLOAD_URL", "https://api.302.ai/302/upload-file").strip()
 VIDEO_302_IMAGE_BUCKET = os.getenv("VIDEO_302_IMAGE_BUCKET", "video-input-images").strip() or "video-input-images"
 
 
@@ -94,6 +95,48 @@ def _request_json(method: str, url: str, token: str, payload_json: Optional[dict
         return {"raw": text}
 
 
+def _request_multipart_file(url: str, token: str, file_path: str) -> Dict[str, Any]:
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"Invalid upload URL: {url}")
+
+    resolved = Path(file_path)
+    mime = mimetypes.guess_type(str(resolved))[0] or "application/octet-stream"
+    boundary = f"----codex302{uuid.uuid4().hex}"
+    filename = resolved.name.encode("utf-8", errors="ignore").decode("utf-8")
+    file_bytes = resolved.read_bytes()
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode("utf-8"),
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode("utf-8"),
+            f"Content-Type: {mime}\r\n\r\n".encode("utf-8"),
+            file_bytes,
+            f"\r\n--{boundary}--\r\n".encode("utf-8"),
+        ]
+    )
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Content-Length": str(len(body)),
+    }
+    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    conn = connection_cls(parsed.netloc, timeout=120)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    conn.request("POST", path, body=body, headers=headers)
+    res = conn.getresponse()
+    raw = res.read()
+    text = raw.decode("utf-8", errors="replace")
+    if res.status < 200 or res.status >= 300:
+        raise RuntimeError(f"Upload request failed: {res.status} {res.reason}; response: {text}")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
+
+
 def _append_query(url: str, params: dict[str, str]) -> str:
     parsed = urlparse(url)
     existing = parsed.query
@@ -119,6 +162,26 @@ def _find_video_url(value: Any) -> str | None:
     if isinstance(value, list):
         for item in value:
             found = _find_video_url(item)
+            if found:
+                return found
+    return None
+
+
+def _find_http_url(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value if value.startswith(("http://", "https://")) else None
+    if isinstance(value, dict):
+        for key in ("data", "url", "file", "upload_url"):
+            found = _find_http_url(value.get(key))
+            if found:
+                return found
+        for nested in value.values():
+            found = _find_http_url(nested)
+            if found:
+                return found
+    if isinstance(value, list):
+        for item in value:
+            found = _find_http_url(item)
             if found:
                 return found
     return None
@@ -165,11 +228,31 @@ def _upload_image_for_remote_video(file_path: str | None) -> str | None:
     resolved = Path(file_path)
     if not resolved.exists():
         return None
+    upload_errors: list[str] = []
+    if VIDEO_302_UPLOAD_URL:
+        for attempt in range(1, 4):
+            try:
+                response = _request_multipart_file(VIDEO_302_UPLOAD_URL, _video_api_token(), str(resolved))
+                uploaded_url = _find_http_url(response)
+                if uploaded_url:
+                    return uploaded_url
+                upload_errors.append(
+                    f"302 upload attempt {attempt} returned no URL: {json.dumps(response, ensure_ascii=False)}"
+                )
+            except Exception as exc:
+                upload_errors.append(f"302 upload attempt {attempt} failed: {exc}")
+                if attempt < 3:
+                    time.sleep(3.0 * attempt)
+
     object_name = f"{uuid.uuid4().hex}{resolved.suffix or '.jpg'}"
     url = upload_file_to_rustfs(str(resolved), VIDEO_302_IMAGE_BUCKET, object_name=object_name)
-    if not url.startswith(("http://", "https://")):
+    if url and url.startswith(("http://", "https://")):
+        return url
+    upload_errors.append(f"RustFS upload returned non-public URL: {url}")
+    if not url or not url.startswith(("http://", "https://")):
         raise RuntimeError(
-            "302.ai requires a public HTTP(S) input image URL, but image upload did not return one."
+            "302.ai requires a public HTTP(S) input image URL, but image upload did not return one. "
+            + " | ".join(upload_errors)
         )
     return url
 
@@ -228,6 +311,11 @@ def generate_video_from_image_url(
         payload_json = {
             "text_prompt": prompt,
             "input_image": image_url,
+            "aspect_ratio": aspect_ratio,
+            "enable_upsample": VIDEO_ENABLE_UPSAMPLE,
+            "enhance_prompt": VIDEO_ENHANCE_PROMPT,
+            "generate_audio": VIDEO_GENERATE_AUDIO,
+            "audio": VIDEO_GENERATE_AUDIO,
         }
         response = _request_json("POST", VIDEO_302_SUBMIT_URL, token, payload_json)
         video_id = _extract_video_id(response)
@@ -388,8 +476,28 @@ def crop_image_to_ratio(src_path: str, ratio: str = "9:16") -> str:
 def _download_completed_video(video_id: str, video_url: str, clips_dir: Path) -> Dict[str, Any]:
     video_name = f"{uuid.uuid4()}.mp4"
     video_path = clips_dir / video_name
-    with urllib.request.urlopen(video_url) as response:
-        video_bytes = response.read()
+    request = urllib.request.Request(video_url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(request) as response:
+            video_bytes = response.read()
+    except Exception as first_exc:
+        if not _is_302_provider():
+            raise
+        auth_request = urllib.request.Request(
+            video_url,
+            headers={
+                "Authorization": f"Bearer {_video_api_token()}",
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(auth_request) as response:
+                video_bytes = response.read()
+        except Exception as second_exc:
+            raise RuntimeError(
+                f"Unable to download completed video from 302.ai URL: {video_url}. "
+                f"Unauthenticated error: {first_exc}; authenticated error: {second_exc}"
+            ) from second_exc
     video_path.write_bytes(video_bytes)
 
     cap = cv2.VideoCapture(str(video_path))
@@ -414,6 +522,14 @@ def _download_completed_video(video_id: str, video_url: str, clips_dir: Path) ->
 
 def _should_use_reference_images() -> bool:
     return VIDEO_REFERENCE_MODE in {"image", "images", "hybrid"}
+
+
+def _compact_value_list(value: Any, limit: int) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()][:limit]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
 
 
 def _create_remote_video_with_retries(
@@ -491,8 +607,11 @@ def _build_video_prompt(
         if isinstance(resolved_product_visual_structure, dict):
             compact_structure = {
                 "summary": resolved_product_visual_structure.get("summary", ""),
-                "must_keep": list(resolved_product_visual_structure.get("must_keep", []))[:6],
-                "colors_and_materials": list(resolved_product_visual_structure.get("colors_and_materials", []))[:4],
+                "must_keep": _compact_value_list(resolved_product_visual_structure.get("must_keep", []), 6),
+                "colors_and_materials": _compact_value_list(
+                    resolved_product_visual_structure.get("colors_and_materials", []),
+                    4,
+                ),
             }
         else:
             compact_structure = {

@@ -24,7 +24,7 @@ from workspace_paths import RunPaths, start_new_run, write_run_json
 
 DEFAULT_CONFIG_PATH = Path("configs") / "anywell_freedom_campaign.json"
 DEFAULT_PROMPT_PATH = Path("prompts") / "anywell_freedom_campaign.md"
-DEFAULT_OUTPUT_ROOT = Path("outputs") / "anywell_campaign"
+DEFAULT_OUTPUT_ROOT = Path("generated") / "deliverables" / "anywell_campaign"
 DEFAULT_LOG_PATH = Path("logs") / "anywell_campaign_run.log"
 DEFAULT_SUMMARY_PATH = Path("reports") / "anywell_campaign_summary.md"
 

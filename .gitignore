@@ -1,14 +1,15 @@
-# Python
+# Python bytecode and caches
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.so
+*.py[cod]
 *$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
 
 # Virtual environments
-venv/
 .venv/
+venv/
 env/
 .python_env/
 
@@ -17,22 +18,17 @@ build/
 dist/
 *.egg-info/
 .eggs/
-pip-wheel-metadata/
 
-# Tooling caches
-.cache/
-.pytest_cache/
-.mypy_cache/
-.pyre/
-.pytype/
+# Local secrets
+.env
+.env.*
+!.env.example
 
-# Coverage
-.coverage
-.coverage.*
-htmlcov/
-
-# Generated outputs
+# Generated media, logs, reports, and run state
 generated/
+logs/
+reports/
+outputs/
 audio_output/
 audio_gen/
 clips/
@@ -43,36 +39,29 @@ exports/
 session_states/
 youtube_data/
 
-# Temp and logs
-*.log
-*.tmp
-*.temp
+# Large/private source media and product references
+白底图/
+*.mp4
+*.mp3
+*.wav
+*.m4a
+*.mov
+*.avi
+*.NEF
+*.JPG
+*.JPEG
+
+# Temporary files
 tmp/
 temp/
+*.tmp
+*.temp
 *.cache
+temp.json
 
-# Editor files
+# Editor and OS noise
 .vscode/
 .idea/
-
-# Notebooks
-.ipynb_checkpoints/
-
-# OS noise
 .DS_Store
 Thumbs.db
 ._*
-
-# Project-specific
-temp.json
-
-# Environment files
-.env
-*.env
-*.JPG
-*.mp4
-*.mp3
-*.png
-*.json
-*.txt
-*.NEF

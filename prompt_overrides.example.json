@@ -1,0 +1,7 @@
+{
+  "script_system_append": "Default to a single confident non-elderly adult rider, age 35-50, same outfit in every scene. Do not use elderly, hospital, rehab, or caregiver stereotypes unless explicitly requested.",
+  "script_user_append": "Keep all scenes on one continuous route: lobby -> corridor ramp -> outdoor walkway. Do not jump to unrelated places.",
+  "scene_pic_system_append": "Use the same rider identity and same wheelchair in every connected scene. No elderly faces, no gray hair, no frail posture, no hospital styling, no manual wheelchair substitution.",
+  "scene_pic_user_append": "Preserve the same rider wardrobe, same route direction, and same building materials across scenes so the edit feels continuous.",
+  "video_prompt_append": "Do not swap rider identity, gender, age, wardrobe, or wheelchair type between scenes. Keep the same powered wheelchair and the same rider throughout the whole sequence."
+}

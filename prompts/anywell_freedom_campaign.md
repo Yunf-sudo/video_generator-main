@@ -25,6 +25,8 @@ Visual direction:
 - Present the wheelchair only in its normal open riding position.
 - Do not show any rear/lower external battery pack, dangling battery cable, removable battery pack, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration.
 - Do not use rear-facing or rear three-quarter product views. Keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded.
+- Do not place the camera behind the rider. Each generated ad shot should let the viewer see the rider's front torso or soft facial profile, plus the right forearm and right hand on the right-side joystick when the chair is self-operated.
+- Do not make the chair backrest, back panel, or rear red detail the hero feature. Favor front, front three-quarter, and joystick-side front-profile angles.
 - Never render a rectangular box mounted behind or below the seat; use front, front three-quarter, or joystick-side front-profile framing instead.
 - When the chair is moving under rider control, the rider's right hand must visibly rest on or gently hold the right-side joystick controller.
 - If the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles.
