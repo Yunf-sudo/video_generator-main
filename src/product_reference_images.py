@@ -17,8 +17,10 @@ PRODUCT_VISUAL_EXCLUSION_RULES = (
     "folded chair, semi-folded chair, collapsed chair, compact storage form, or folding/unfolding demonstration. "
     "If a reference photo contains a rear lower battery pack, treat it as an omitted accessory for advertising visuals; "
     "hide it by angle, rider body, shadow, or framing while preserving the rest of the wheelchair identity. "
+    "Preserve the paired upper rear push handles as slim handles visible above or just behind the backrest from side/front-profile angles; "
+    "do not omit them, melt them into the backrest, or confuse them with a rear/lower battery box. "
     "Never use a rear-facing or rear three-quarter product angle for ad generation. Keep the back panel and lower rear quadrant "
-    "out of frame or fully occluded. Do not render any rectangular box mounted behind or below the seat; that area should read as "
+    "out of frame or fully occluded while the upper push handles remain readable. Do not render any rectangular box mounted behind or below the seat; that area should read as "
     "open tubular frame, wheel shadow, or plain dark under-seat space. Prefer front, front three-quarter, or joystick-side front-profile framing. "
     "The camera must not sit behind the rider; in lifestyle scenes the viewer should be able to see the rider's front torso, "
     "soft facial profile, right forearm, and right-side joystick hand. Treat rear backrest color details as nonessential for advertising shots; "
@@ -113,7 +115,8 @@ def get_product_reference_signature() -> str:
         "a black seat cushion and black backrest. "
         "There is a joystick controller mounted on the rider's right side above the armrest and a dark gray side housing "
         "with a smooth wave-like contour under the armrest, large rear drive wheels with silver hub covers and red center caps, "
-        "small black front casters with thin multi-spoke rims, and black swing-away footrests and footplates. "
+        "small black front casters with thin multi-spoke rims, black swing-away footrests and footplates, and paired upper rear push handles "
+        "rising as slim handles above or just behind the backrest. "
         "Do not replace it with a generic rehab wheelchair, molded shell chair, thick-spoke manual chair, or a different frame shape. "
         "Keep the same proportions, frame geometry, wheel layout, armrest shape, controller placement, side housing, and wheel hubs as the real product photos. "
         f"{PRODUCT_VISUAL_EXCLUSION_RULES}"
@@ -168,8 +171,10 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
         if any(term in lowered for term in REAR_DETAIL_BLOCKLIST):
             continue
         must_keep.append(_strip_rear_detail_language(text))
-    if must_keep:
-        sanitized["must_keep"] = must_keep
+    handle_keep = "paired upper rear push handles visible as slim handles above or just behind the backrest from side/front-profile angles"
+    if handle_keep not in must_keep:
+        must_keep.append(handle_keep)
+    sanitized["must_keep"] = must_keep
 
     for key, value in list(sanitized.items()):
         if isinstance(value, str):

@@ -684,7 +684,8 @@ def generate_video_from_image_path(
 ):
     clips_dir = ensure_active_run().clips
     clips_dir.mkdir(parents=True, exist_ok=True)
-    cropped_path = crop_image_to_ratio(image_path, aspect_ratio)
+    use_original_storyboard = bool((meta or {}).get("skip_storyboard_crop_for_video", False))
+    cropped_path = str(image_path) if use_original_storyboard else crop_image_to_ratio(image_path, aspect_ratio)
     prompt_text = _build_video_prompt(
         scene_info,
         visuals,

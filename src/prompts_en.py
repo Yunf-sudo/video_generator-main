@@ -10,16 +10,18 @@ Product consistency is mandatory across the entire ad:
 - same frame silhouette
 - same front and rear wheel size
 - same armrest, footrest, joystick, side housing, and seat structure
+- same paired upper rear push handles, visible as slim handles above or just behind the backrest from safe side/front-profile angles
 - no random redesigns between scenes
 - {reference_image_instruction}
 - show the wheelchair only in its normal open riding position
 - do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration
-- do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded
+- preserve the paired upper rear push handles; do not omit them, melt them into the backrest, or crop them out in every shot
+- do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded while the upper push handles remain readable from safe side/front-profile angles
 - never place the camera behind the rider; the viewer should see the rider's front torso or soft facial profile plus the right forearm/hand on the right-side joystick
 - do not make the backrest/back panel or rear red detail the hero feature; prioritize front caster, joystick, armrest, side housing, seat, and wheel profile
 - never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
 - for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller; no hands-free autonomous wheelchair movement
-- if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles
+- if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles, with both hands and both push handles clearly readable
 - white-background product reference photos are identity references only; never reproduce a white studio background, packshot, cutaway, or product-photo flash frame in the ad
 
 External style reference:
@@ -38,6 +40,7 @@ Core requirements:
 - Use only adults when a rider is needed.
 - Default casting must be a confident everyday adult between about 30 and 55 years old unless the brief explicitly requests another age.
 - Do not default to elderly, frail, hospital-patient, nursing-home, or medical-rehab stereotypes unless the brief explicitly asks for that.
+- If the brief requests an obese or large-bodied senior rider, keep that dignified heavier body type consistent across all scenes; do not slim the rider down or turn body size into comedy, pity, or caricature.
 - If the same rider appears across scenes, keep the same rider identity, outfit, body type, hair color, and general styling across the whole ad.
 - If the location evolves across scenes, it should evolve like one continuous route or one coherent visit, not like unrelated places stitched together.
 - No readable text inside the generated image or video scenes.
@@ -119,16 +122,18 @@ Rules:
 - The hero product is {hero_product_name}.
 - The product must remain the exact same wheelchair model across every scene.
 - Preserve product consistency in frame shape, color, joystick position, wheel size, seat design, armrest, and footrest.
+- Preserve the paired upper rear push handles as visible slim handles above or just behind the backrest from safe side/front-profile angles.
 - If a product reference signature is provided in the structured input, match it exactly.
 - If a product visual structure JSON is provided in the structured input, treat it as a hard control specification for visible geometry and component layout.
 - The wheelchair must be in normal open riding position only.
 - Do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration.
-- Do not use rear-facing or rear three-quarter product views. Keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded.
+- Do not omit, melt, or crop away the paired upper rear push handles; they should remain readable without turning the shot into a rear view.
+- Do not use rear-facing or rear three-quarter product views. Keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded while the upper push handles remain readable from safe side/front-profile angles.
 - Never place the camera behind the rider. The storyboard must show the rider's front torso or soft facial profile, plus the right forearm and hand on the right-side joystick when self-operated.
 - Do not make the chair backrest, back panel, or rear red detail the visual focus. Prioritize joystick-side front-profile, front caster, armrest, side housing, seat, and wheel profile.
 - Never render a rectangular box mounted behind or below the seat. The under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space.
 - If the chair is moving under the rider's control, show the rider's right hand visibly resting on or gently holding the right-side joystick controller.
-- If the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles.
+- If the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles, with both hands and both push handles clearly readable.
 - Treat white-background product photos only as identity references. Never reproduce a white studio background, packshot, cutaway, or product-photo flash frame.
 - Never convert the product into a manual wheelchair, transport chair, hospital chair, or mobility scooter.
 - Make the frame look like a live-action premium commerce storyboard keyframe for an actual advertisement shoot.
@@ -137,6 +142,7 @@ Rules:
 - Favor believable locations, natural props, real materials, and practical lighting over stylized fantasy elements.
 - If continuity notes suggest the same location or action flow, preserve that continuity so adjacent scenes can cut together smoothly.
 - If rider identity, age, ethnicity, wardrobe, or family-role details are explicitly specified in the structured input or continuity notes, preserve them exactly.
+- If a large-bodied, overweight, or obese senior rider is explicitly specified, preserve that dignified body type across connected scenes and do not slim the rider down.
 - Only when the rider is not explicitly specified should you default to the same confident non-elderly adult across connected scenes.
 - Avoid gray hair, frail posture, blanket styling, hospital gowns, hovering caregivers, rehab-room cliches, or elderly-patient casting unless explicitly requested.
 - Keep wardrobe continuity when the same rider appears across multiple scenes.
@@ -169,12 +175,13 @@ Hard requirements:
 - do not redesign the wheelchair between shots
 - keep the wheelchair in normal open riding position only
 - do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration
-- do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded
+- preserve the paired upper rear push handles as visible slim handles above or just behind the backrest from safe side/front-profile angles; do not omit them, melt them into the backrest, or crop them out in every shot
+- do not use rear-facing or rear three-quarter product views; keep the back panel and lower rear quadrant hidden, cropped out, or fully occluded while the upper push handles remain readable from safe side/front-profile angles
 - never place the camera behind the rider; the video must show the rider's front torso or soft facial profile plus the right forearm/hand on the right-side joystick during self-operated motion
 - do not feature the backrest/back panel or rear red detail; keep the visual emphasis on joystick-side front-profile riding, front caster, armrest, side housing, seat, and wheel profile
 - never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
 - for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller
-- if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles
+- if the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles, with both hands and both push handles clearly readable
 - white-background product reference photos are identity references only; never reproduce a white studio background, packshot, cutaway, or product-photo flash frame in the video
 - never change the powered wheelchair into a manual wheelchair, transport chair, or mobility scooter
 - realistic motion and physics, not a slideshow, not a looped replay
@@ -186,6 +193,7 @@ Hard requirements:
 - no watermark
 - adults only if needed
 - if rider identity, age, ethnicity, wardrobe, or family-role details are explicitly specified in the scene details or continuity notes, preserve them exactly
+- if a large-bodied, overweight, or obese senior rider is explicitly specified, preserve that dignified body type across the clip and do not slim the rider down
 - only when the rider is not explicitly specified should you default to a healthy-looking adult around 30-55, not an elderly patient stereotype
 - do not age-swap, identity-swap, or wardrobe-swap the rider between scenes when continuity implies the same person
 

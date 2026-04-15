@@ -1,6 +1,6 @@
 # Video Generator 视频生成项目
 
-这是一个面向产品短视频广告的 AI 生成工作流。当前交接版本已针对 AnyWell 轮椅情感营销场景配置好：产品外观参考来自本地 `白底图/` 文件夹，系统会先生成脚本和分镜图，再通过 302.ai 的 Veo 图生视频接口生成竖版短视频，最后合成旁白、字幕和最终 MP4。
+这是一个面向产品短视频广告的 AI 生成工作流。当前交接版本已针对 AnyWell 轮椅情感营销场景完成配置：产品外观参考来自本地 `白底图/` 文件夹，系统会先生成脚本和分镜图，再通过 302.ai 的 Veo 图生视频接口生成竖版短视频，最后合成旁白、字幕并输出最终 MP4。
 
 ## 项目能力
 
@@ -8,7 +8,7 @@
 - 使用 `白底图/` 中的产品图片保持轮椅外观一致。
 - 通过 302.ai `veo3-pro-frames` 生成 `9:16` 竖版视频片段。
 - 自动合成旁白、字幕和最终成片。
-- 交接输出保持清爽：`outputs/final/` 只放最终视频。
+- 交接输出保持清晰：`outputs/final/` 只放最终视频。
 
 ## 目录结构
 
@@ -32,7 +32,7 @@
     `-- clean/                     # 无字幕版
 ```
 
-`generated/`、`logs/`、`reports/`、`outputs/`、`.env` 和大体积媒体文件默认不提交到 git。需要交接这些文件时，请单独打包发送。
+`generated/`、`logs/`、`reports/`、`outputs/`、`.env` 和大体积媒体文件默认不会提交到 git。需要交接这些文件时，请单独打包发送。
 
 ## 环境准备
 
@@ -58,7 +58,7 @@ Copy-Item .env.example .env
 
 ```text
 JENIYA_API_TOKEN=你的中转站密钥
-V302_API_KEY=你的302.ai密钥
+V302_API_KEY=你的 302.ai 密钥
 VIDEO_PROVIDER=302ai
 VIDEO_MODEL=veo3-pro-frames
 VIDEO_302_SUBMIT_URL=https://api.302.ai/302/submit/veo3-pro-frames
@@ -71,7 +71,7 @@ VIDEO_GENERATE_AUDIO=false
 
 - `JENIYA_API_TOKEN` 用于脚本、分镜图、旁白等环节。
 - `V302_API_KEY` 用于 302.ai 视频生成和图片上传。
-- `VIDEO_GENERATE_AUDIO=false` 代表最终合成时使用项目自己的旁白音轨；Veo 原片音轨不会作为最终广告音轨使用。
+- `VIDEO_GENERATE_AUDIO=false` 表示最终合成时使用项目自己的旁白音轨；Veo 原片音轨不会作为最终广告音轨使用。
 
 ## 产品参考图
 
@@ -83,17 +83,21 @@ VIDEO_GENERATE_AUDIO=false
 
 当前 AnyWell 配置优先使用侧面或前侧产品图作为外观参考。白底图只用于识别产品结构和外观，不应该作为白底产品图、棚拍图或闪帧出现在最终广告里。
 
-## 网页端使用
+## 程序运行方式
 
-启动 Streamlit 网页端：
+项目有两个主要运行入口：网页端适合人工检查和逐步调整，CLI 适合在配置稳定后跑完整流程。
+
+### 网页端运行
+
+在项目根目录启动 Streamlit：
 
 ```powershell
 streamlit run app.py
 ```
 
-网页端适合逐步测试脚本、分镜、视频片段和最终合成。
+启动后，浏览器会打开本地工作台。如果没有自动打开，请复制终端里的 Local URL 到浏览器。根目录的 `app.py` 是启动入口，实际界面逻辑在 `src/app.py`。
 
-## CLI 生成 AnyWell 视频
+### CLI 一键生成 AnyWell 视频
 
 推荐把中间产物输出到 `generated/` 下，不要直接写入 `outputs/final/`。
 
@@ -109,9 +113,31 @@ python scripts/run_anywell_campaign.py `
 
 生成完成后，概念目录里会包含脚本、分镜图、视频片段、旁白、字幕、合成视频和报告。这些都属于运行中间产物，不应该直接放进最终交付目录。
 
+常用参数说明：
+
+- `--config`：活动配置，控制产品、受众、卖点、场景和时长等结构化信息。
+- `--prompt`：活动提示词，控制整体创意方向、视觉约束和合规要求。
+- `--output-root`：中间产物目录，建议使用 `generated/deliverables/...`。
+- `--log-path`：运行日志路径，便于排查 API、下载和合成问题。
+- `--summary-path`：生成结果摘要路径。
+- `--max-concepts`：本次生成的概念数量。当前交接建议先设为 `1`，确认质量后再增加。
+
+## 网页端交互方式
+
+网页端按从左到右的 6 个页签推进：
+
+1. 产品简报：填写产品名称、目标市场、目标受众、核心卖点、使用场景、风格语气、画幅和参考图。保存简报后会创建新的 Run，并清空下游旧结果。
+2. 广告脚本：点击“生成广告脚本”创建分场景脚本。若脚本不符合预期，可在“脚本修改意见”中输入反馈，再点击“应用脚本修改”。
+3. 分镜图：点击“生成全部分镜图”。每张分镜都可以单独展开“修改这个分镜”，输入修改意见后重新生成对应画面。
+4. 视频片段：点击“批量提交远端任务”提交到 302.ai，随后用“刷新远端状态”检查结果；也可以直接点击“提交并等待全部完成”。
+5. 配音字幕：依次生成标题描述、配音和字幕。最终成片会使用项目自己的旁白音轨，不依赖 Veo 原片音频。
+6. 导出与剪映：全部场景都显示为远端动态片段后，点击“导出正式成片”。如需剪映草稿，可使用“上传片段并导入剪映”。
+
+左侧栏会显示当前 Run、输出目录、脚本场景数、分镜数量、远端片段数量和当前模型。侧栏的“一键生成正式版”会从简报一路跑到正式成片，适合配置已经确认后的完整测试。
+
 ## 打包最终视频
 
-生成成功后，把最终 MP4 复制到清爽的交付目录：
+生成成功后，把最终 MP4 复制到干净的交付目录：
 
 ```powershell
 python scripts/package_final_outputs.py generated/deliverables/anywell_campaign/concept_a `
@@ -151,14 +177,38 @@ outputs/final/clean/anywell_nature_within_reach_clean.mp4
 - 视频模型：`veo3-pro-frames`
 - 视频服务：302.ai
 
+## 修改方式
+
+常见修改入口如下：
+
+- 修改产品外观参考：替换 `白底图/` 下的产品图片，或在网页端“产品简报”页签上传新的参考图。参考图应只用于产品外观识别，不应作为广告画面直接出现。
+- 修改受众、卖点、场景数量和目标时长：优先修改 `configs/anywell_freedom_campaign.json`。如果只是临时测试，也可以直接在网页端“产品简报”里改。
+- 修改整体创意方向和合规约束：修改 `prompts/anywell_freedom_campaign.md`。这里适合写品牌调性、禁用内容、镜头偏好和跨场景一致性要求。
+- 修改局部强约束：修改 `prompt_overrides.json`。这里适合放容易被模型忽略的硬性要求，例如不露出后下方电池、不展示折叠形态、不插入白底图闪帧。
+- 修改视频模型、接口地址或密钥：修改 `.env`。真实密钥只能保留在本地，不要提交到仓库。
+- 修改最终交付文件名：运行 `scripts/package_final_outputs.py` 时调整 `--slug` 参数。
+- 修改网页端交互逻辑：主要改 `src/app.py`。根目录 `app.py` 只是 Streamlit 启动入口。
+- 修改视频提交、查询、下载逻辑：主要改 `src/generate_video_tools.py`。
+- 修改最终合成、字幕和音轨处理：主要改 `src/media_pipeline.py`。
+- 修改 AnyWell 批量生成流程：主要改 `src/anywell_campaign.py` 和 `scripts/run_anywell_campaign.py`。
+
+修改后建议先做基础检查：
+
+```powershell
+python -m json.tool configs/anywell_freedom_campaign.json
+python -m py_compile app.py src/app.py src/generate_video_tools.py src/media_pipeline.py src/anywell_campaign.py scripts/run_anywell_campaign.py scripts/package_final_outputs.py
+```
+
 ## AnyWell 质量和合规约束
 
 当前配置和提示词会强制约束以下规则：
 
-- 不引用、不复刻、不二创真实客户视频。
-- 使用匿名欧美市场人物和通用家庭/户外场景。
-- 轮椅由乘坐者自己操作时，右手必须在右侧遥杆上。
-- 如果右手不在遥杆上，必须明显有人从后方推行。
+- 不引用、不复刻、不对真实客户视频进行二次创作。
+- 使用面向欧美市场的匿名肥胖/大体型老年人物和通用家庭/户外场景。
+- 保持同一位大体型长者的体型、服装、姿态和身份一致，不把体型处理成戏谑或病态化表达。
+- 轮椅由乘坐者自己操作时，右手必须在右侧摇杆上。
+- 如果右手不在摇杆上，必须明显有人从后方推行。
+- 轮椅后方上部的成对推把必须作为细长把手稳定可见，但不能因此露出后下方电池区域。
 - 避免单一后视角或后方跟拍视角。
 - 不展示轮椅后下方外置电池包。
 - 不展示折叠、半折叠、收纳形态或折叠演示。

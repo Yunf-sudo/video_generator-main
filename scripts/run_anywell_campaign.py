@@ -19,6 +19,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-path", default="logs/anywell_campaign_run.log", help="Path to run log file.")
     parser.add_argument("--summary-path", default="reports/anywell_campaign_summary.md", help="Path to markdown summary report.")
     parser.add_argument("--max-concepts", type=int, default=None, help="Optional limit on how many concepts to run.")
+    parser.add_argument("--max-scenes", type=int, default=None, help="Optional limit on how many scenes to run per concept.")
+    parser.add_argument(
+        "--no-storyboard-crop",
+        action="store_true",
+        help="Use the original storyboard image as the video input instead of creating a cropped copy.",
+    )
     return parser.parse_args()
 
 
@@ -31,6 +37,8 @@ def main() -> None:
         log_path=args.log_path,
         summary_path=args.summary_path,
         max_concepts=args.max_concepts,
+        max_scenes_per_concept=args.max_scenes,
+        skip_storyboard_crop_for_video=args.no_storyboard_crop,
     )
     print(summary["output_root"])
 

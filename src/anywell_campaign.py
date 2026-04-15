@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import shutil
@@ -185,6 +186,12 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
         "reuse_video_result_json": concept.get(
             "reuse_video_result_json",
             campaign.get("reuse_video_result_json", ""),
+        ),
+        "skip_storyboard_crop_for_video": bool(
+            concept.get(
+                "skip_storyboard_crop_for_video",
+                campaign.get("skip_storyboard_crop_for_video", False),
+            )
         ),
     }
 
@@ -567,8 +574,12 @@ def run_anywell_campaign(
     log_path: str | Path = DEFAULT_LOG_PATH,
     summary_path: str | Path = DEFAULT_SUMMARY_PATH,
     max_concepts: int | None = None,
+    max_scenes_per_concept: int | None = None,
+    skip_storyboard_crop_for_video: bool = False,
 ) -> dict[str, Any]:
     campaign = load_campaign_config(config_path)
+    if skip_storyboard_crop_for_video:
+        campaign["skip_storyboard_crop_for_video"] = True
     creative_guardrails = load_creative_guardrails(prompt_path)
     output_root = _ensure_dir(Path(output_root))
     log_path = Path(log_path)
@@ -584,9 +595,14 @@ def run_anywell_campaign(
     logger.addHandler(handler)
 
     results: list[dict[str, Any]] = []
-    concepts = campaign.get("concepts", [])
+    concepts = copy.deepcopy(campaign.get("concepts", []))
     if max_concepts is not None:
         concepts = concepts[:max_concepts]
+    if max_scenes_per_concept is not None:
+        for concept in concepts:
+            shots = concept.get("shots", [])
+            if isinstance(shots, list):
+                concept["shots"] = shots[:max_scenes_per_concept]
 
     for concept in concepts:
         logger.info("Starting concept %s", concept["id"])
