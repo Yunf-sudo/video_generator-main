@@ -1,39 +1,86 @@
 import os
+import socket
+from urllib.parse import urlparse
 
 import requests
 
 from rustfs_util import upload_file_to_rustfs
 
 
+class CapCutServiceError(RuntimeError):
+    """Raised when the external CapCut bridge service is unavailable or invalid."""
+
+
+def get_capcut_api_url() -> str:
+    return (os.getenv("CAPCUT_API_URL") or "").strip().rstrip("/")
+
+
+def capcut_service_status(timeout: float = 2.0) -> tuple[bool, str]:
+    base_url = get_capcut_api_url()
+    if not base_url:
+        return False, "未配置 CAPCUT_API_URL，无法导入剪映。"
+
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False, f"CAPCUT_API_URL 配置无效：{base_url}"
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((parsed.hostname, port), timeout=timeout):
+            pass
+    except OSError as exc:
+        return False, f"剪映桥接服务未启动或不可达：{base_url}（{exc}）"
+    return True, f"剪映桥接服务可用：{base_url}"
+
+
+def _post_capcut(path: str, params: dict):
+    base_url = get_capcut_api_url()
+    ok, message = capcut_service_status()
+    if not ok:
+        raise CapCutServiceError(f"{message}。请先启动该服务，再点击“上传片段并导入剪映”。")
+
+    try:
+        response = requests.post(base_url + path, json=params, timeout=120)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise CapCutServiceError(f"请求剪映桥接服务失败：{base_url + path}。{exc}") from exc
+
+    try:
+        response_json = response.json()
+    except ValueError as exc:
+        raise CapCutServiceError("剪映桥接服务返回的不是合法 JSON。") from exc
+
+    output = response_json.get("output")
+    if not isinstance(output, dict):
+        raise CapCutServiceError(f"剪映桥接服务返回异常：{response_json}")
+    return response_json
+
+
 def _new_draft_with_video(video_url, ext_dict):
     params = {"video_url": video_url}
     params.update(ext_dict)
-    response = requests.post(os.getenv("CAPCUT_API_URL") + "/add_video", json=params, timeout=120)
-    response_json = response.json()
+    response_json = _post_capcut("/add_video", params)
     return response_json, response_json["output"]["draft_id"], response_json["output"]["draft_url"]
 
 
 def _add_video_to_draft(draft_id, video_url, ext_dict):
     params = {"draft_id": draft_id, "video_url": video_url}
     params.update(ext_dict)
-    response = requests.post(os.getenv("CAPCUT_API_URL") + "/add_video", json=params, timeout=120)
-    response_json = response.json()
+    response_json = _post_capcut("/add_video", params)
     return response_json, response_json["output"]["draft_id"], response_json["output"]["draft_url"]
 
 
 def _add_audio_to_draft(draft_id, audio_url, ext_dict):
     params = {"draft_id": draft_id, "audio_url": audio_url}
     params.update(ext_dict)
-    response = requests.post(os.getenv("CAPCUT_API_URL") + "/add_audio", json=params, timeout=120)
-    response_json = response.json()
+    response_json = _post_capcut("/add_audio", params)
     return response_json, response_json["output"]["draft_id"], response_json["output"]["draft_url"]
 
 
 def _add_srt_to_draft(draft_id, srt_url, ext_dict):
     params = {"draft_id": draft_id, "srt": srt_url}
     params.update(ext_dict)
-    response = requests.post(os.getenv("CAPCUT_API_URL") + "/add_subtitle", json=params, timeout=120)
-    response_json = response.json()
+    response_json = _post_capcut("/add_subtitle", params)
     return response_json, response_json["output"]["draft_id"], response_json["output"]["draft_url"]
 
 

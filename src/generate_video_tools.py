@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import base64
-import http.client
 import json
 import mimetypes
 import os
@@ -8,7 +9,6 @@ import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlencode, urlparse
 
 import cv2
 import numpy as np
@@ -23,135 +23,98 @@ from product_reference_images import (
     get_product_reference_signature,
     get_product_visual_structure_json,
 )
-from rustfs_util import upload_file_to_rustfs
 from workspace_paths import ensure_active_run
 
 
 load_dotenv()
 
-API_HOST = "jeniya.cn"
-API_PATH = "/v1/video/create"
-VIDEO_PROVIDER = os.getenv("VIDEO_PROVIDER", "jeniya").strip().lower()
-VIDEO_MODEL = os.getenv("VIDEO_MODEL", "veo3.1-pro")
+GOOGLE_VIDEO_BASE_URL = os.getenv("GOOGLE_VIDEO_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip()
+VIDEO_PROVIDER = "google"
+VIDEO_MODEL = os.getenv("VIDEO_MODEL", "veo-3.1-generate-preview").strip() or "veo-3.1-generate-preview"
 VIDEO_REFERENCE_MODE = os.getenv("VIDEO_REFERENCE_MODE", "image").strip().lower()
-VIDEO_SIZE = os.getenv("VIDEO_SIZE", "large").strip() or "large"
-VIDEO_ENHANCE_PROMPT = os.getenv("VIDEO_ENHANCE_PROMPT", "true").strip().lower() in {"1", "true", "yes", "on"}
-VIDEO_ENABLE_UPSAMPLE = os.getenv("VIDEO_ENABLE_UPSAMPLE", "true").strip().lower() in {"1", "true", "yes", "on"}
-VIDEO_GENERATE_AUDIO = os.getenv("VIDEO_GENERATE_AUDIO", "false").strip().lower() in {"1", "true", "yes", "on"}
-VIDEO_302_SUBMIT_URL = os.getenv("VIDEO_302_SUBMIT_URL", "https://api.302.ai/302/submit/veo3-pro-frames").strip()
-VIDEO_302_QUERY_URL = os.getenv("VIDEO_302_QUERY_URL", VIDEO_302_SUBMIT_URL).strip()
-VIDEO_302_UPLOAD_URL = os.getenv("VIDEO_302_UPLOAD_URL", "https://api.302.ai/302/upload-file").strip()
-VIDEO_302_IMAGE_BUCKET = os.getenv("VIDEO_302_IMAGE_BUCKET", "video-input-images").strip() or "video-input-images"
+VIDEO_RESOLUTION = (os.getenv("VIDEO_RESOLUTION", "1080p").strip() or "1080p").lower()
+VIDEO_NEGATIVE_PROMPT = os.getenv("VIDEO_NEGATIVE_PROMPT", "").strip()
+VIDEO_HTTP_TIMEOUT_SECONDS = max(60.0, float(os.getenv("VIDEO_HTTP_TIMEOUT_SECONDS", "180").strip() or 180))
 
 
-def _is_302_provider() -> bool:
-    return VIDEO_PROVIDER in {"302", "302ai", "302.ai", "302-ai"}
-
-
-def _video_api_token(token: Optional[str] = None) -> str:
-    if token:
-        return token
-    if _is_302_provider():
-        value = (
-            os.getenv("V302_API_KEY")
-            or os.getenv("VIDEO_302_API_KEY")
-            or os.getenv("302_API_KEY")
-            or os.getenv("JENIYA_API_TOKEN")
-        )
-        if not value:
-            raise ValueError("Missing V302_API_KEY for 302.ai video generation.")
-        return value.strip().strip('"')
-    value = os.getenv("JENIYA_API_TOKEN")
+def _google_api_key() -> str:
+    value = (
+        os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+        or os.getenv("GOOGLE_GENAI_API_KEY")
+    )
     if not value:
-        raise ValueError("Missing JENIYA_API_TOKEN for remote video generation.")
+        raise ValueError("Missing GEMINI_API_KEY or GOOGLE_API_KEY for Google Veo generation.")
     return value.strip().strip('"')
 
 
-def _request_json(method: str, url: str, token: str, payload_json: Optional[dict[str, Any]] = None) -> Dict[str, Any]:
-    parsed = urlparse(url)
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(f"Invalid API URL: {url}")
-    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-    conn = connection_cls(parsed.netloc, timeout=60)
-    path = parsed.path or "/"
-    if parsed.query:
-        path = f"{path}?{parsed.query}"
-
-    body = json.dumps(payload_json or {}, ensure_ascii=False).encode("utf-8") if payload_json is not None else b""
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    conn.request(method.upper(), path, body=body if payload_json is not None else None, headers=headers)
-    res = conn.getresponse()
-    raw = res.read()
-    text = raw.decode("utf-8", errors="replace")
-    if res.status < 200 or res.status >= 300:
-        raise RuntimeError(f"API request failed: {res.status} {res.reason}; response: {text}")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"raw": text}
-
-
-def _request_multipart_file(url: str, token: str, file_path: str) -> Dict[str, Any]:
-    parsed = urlparse(url)
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(f"Invalid upload URL: {url}")
-
-    resolved = Path(file_path)
-    mime = mimetypes.guess_type(str(resolved))[0] or "application/octet-stream"
-    boundary = f"----codex302{uuid.uuid4().hex}"
-    filename = resolved.name.encode("utf-8", errors="ignore").decode("utf-8")
-    file_bytes = resolved.read_bytes()
-    body = b"".join(
-        [
-            f"--{boundary}\r\n".encode("utf-8"),
-            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode("utf-8"),
-            f"Content-Type: {mime}\r\n\r\n".encode("utf-8"),
-            file_bytes,
-            f"\r\n--{boundary}--\r\n".encode("utf-8"),
-        ]
-    )
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}",
-        "Content-Type": f"multipart/form-data; boundary={boundary}",
-        "Content-Length": str(len(body)),
-    }
-    connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-    conn = connection_cls(parsed.netloc, timeout=120)
-    path = parsed.path or "/"
-    if parsed.query:
-        path = f"{path}?{parsed.query}"
-    conn.request("POST", path, body=body, headers=headers)
-    res = conn.getresponse()
-    raw = res.read()
-    text = raw.decode("utf-8", errors="replace")
-    if res.status < 200 or res.status >= 300:
-        raise RuntimeError(f"Upload request failed: {res.status} {res.reason}; response: {text}")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"raw": text}
+def _request_json(method: str, url: str, payload_json: Optional[dict[str, Any]] = None) -> Dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload_json or {}, ensure_ascii=False).encode("utf-8") if payload_json is not None else None,
+            headers={
+                "x-goog-api-key": _google_api_key(),
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0",
+            },
+            method=method.upper(),
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=VIDEO_HTTP_TIMEOUT_SECONDS) as response:
+                raw = response.read()
+            text = raw.decode("utf-8", errors="replace")
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return {"raw": text}
+        except Exception as exc:
+            last_error = exc
+            message = str(exc)
+            transient_markers = [
+                "Remote end closed connection without response",
+                "timed out",
+                "timeout",
+                "429",
+                "500",
+                "502",
+                "503",
+                "RESOURCE_EXHAUSTED",
+            ]
+            if attempt >= 3 or not any(marker in message for marker in transient_markers):
+                raise RuntimeError(f"Google Veo API request failed: {exc}") from exc
+            time.sleep(5.0 * attempt)
+    raise RuntimeError(f"Google Veo API request failed after retries: {last_error}")
 
 
-def _append_query(url: str, params: dict[str, str]) -> str:
-    parsed = urlparse(url)
-    existing = parsed.query
-    extra = urlencode(params)
-    query = f"{existing}&{extra}" if existing else extra
-    return parsed._replace(query=query).geturl()
+def _google_submit_url(model: str) -> str:
+    normalized = model.strip() or VIDEO_MODEL
+    if not normalized.startswith("models/"):
+        normalized = f"models/{normalized}"
+    return f"{GOOGLE_VIDEO_BASE_URL}/{normalized}:predictLongRunning"
+
+
+def _google_operation_url(operation_name: str) -> str:
+    normalized = operation_name.strip()
+    if normalized.startswith(("http://", "https://")):
+        return normalized
+    normalized = normalized.lstrip("/")
+    if normalized.startswith("models/"):
+        return f"{GOOGLE_VIDEO_BASE_URL}/{normalized}"
+    if not normalized.startswith("operations/"):
+        normalized = f"operations/{normalized}"
+    return f"{GOOGLE_VIDEO_BASE_URL}/{normalized}"
 
 
 def _find_video_url(value: Any) -> str | None:
     if isinstance(value, str):
-        if value.startswith(("http://", "https://")) and (".mp4" in value or "video" in value):
+        if value.startswith(("http://", "https://")) and (".mp4" in value or "/files/" in value or "video" in value):
             return value
         return None
     if isinstance(value, dict):
-        for key in ("upsample_video_url", "video_url", "url"):
+        for key in ("uri", "url", "videoUri", "video_url", "downloadUri", "download_uri"):
             found = _find_video_url(value.get(key))
             if found:
                 return found
@@ -167,94 +130,22 @@ def _find_video_url(value: Any) -> str | None:
     return None
 
 
-def _find_http_url(value: Any) -> str | None:
-    if isinstance(value, str):
-        return value if value.startswith(("http://", "https://")) else None
-    if isinstance(value, dict):
-        for key in ("data", "url", "file", "upload_url"):
-            found = _find_http_url(value.get(key))
-            if found:
-                return found
-        for nested in value.values():
-            found = _find_http_url(nested)
-            if found:
-                return found
-    if isinstance(value, list):
-        for item in value:
-            found = _find_http_url(item)
-            if found:
-                return found
-    return None
-
-
 def _extract_video_id(response: dict[str, Any]) -> str | None:
-    for key in ("id", "video_id", "task_id", "request_id"):
+    for key in ("name", "id", "video_id", "task_id", "request_id"):
         value = response.get(key)
         if value:
             return str(value)
-    data = response.get("data")
-    if isinstance(data, str) and data.strip():
-        return data.strip()
-    if isinstance(data, dict):
-        for key in ("id", "video_id", "task_id", "request_id"):
-            value = data.get(key)
-            if value:
-                return str(value)
     return None
 
 
 def _extract_status(response: dict[str, Any]) -> str | None:
-    status = response.get("status") or response.get("code")
-    data = response.get("data")
-    if status is None and isinstance(data, dict):
-        status = data.get("status") or data.get("task_status") or data.get("code")
-    if status is None and _find_video_url(response):
-        return "completed"
-    if status is None:
-        return None
-    raw = str(status).strip().lower()
-    if raw in {"completed", "complete", "succeeded", "succeed", "success", "done", "10000"}:
-        return "completed"
-    if raw in {"failed", "failure", "error", "canceled", "cancelled"}:
+    if response.get("error"):
         return "failed"
-    return raw
-
-
-def _upload_image_for_remote_video(file_path: str | None) -> str | None:
-    if not file_path:
-        return None
-    if not _is_302_provider():
-        return _file_to_data_url(file_path)
-    resolved = Path(file_path)
-    if not resolved.exists():
-        return None
-    upload_errors: list[str] = []
-    if VIDEO_302_UPLOAD_URL:
-        for attempt in range(1, 4):
-            try:
-                response = _request_multipart_file(VIDEO_302_UPLOAD_URL, _video_api_token(), str(resolved))
-                uploaded_url = _find_http_url(response)
-                if uploaded_url:
-                    return uploaded_url
-                upload_errors.append(
-                    f"302 upload attempt {attempt} returned no URL: {json.dumps(response, ensure_ascii=False)}"
-                )
-            except Exception as exc:
-                upload_errors.append(f"302 upload attempt {attempt} failed: {exc}")
-                if attempt < 3:
-                    time.sleep(3.0 * attempt)
-
-    object_name = f"{uuid.uuid4().hex}{resolved.suffix or '.jpg'}"
-    url = upload_file_to_rustfs(str(resolved), VIDEO_302_IMAGE_BUCKET, object_name=object_name)
-    if url and url.startswith(("http://", "https://")):
-        return url
-    upload_errors.append(f"RustFS upload returned non-public URL: {url}")
-    if not url or not url.startswith(("http://", "https://")):
-        raise RuntimeError(
-            "302.ai requires a public HTTP(S) input image URL, but image upload did not return one. "
-            + " | ".join(upload_errors)
-        )
-    return url
+    if "done" in response:
+        return "completed" if bool(response.get("done")) else "running"
+    if _find_video_url(response):
+        return "completed"
+    return None
 
 
 def _file_to_data_url(file_path: str | None) -> str | None:
@@ -284,157 +175,59 @@ def _file_to_data_url(file_path: str | None) -> str | None:
     return f"data:{mime};base64,{encoded}"
 
 
-def _orientation_for_ratio(aspect_ratio: str) -> str:
-    if aspect_ratio == "9:16":
-        return "portrait"
-    if aspect_ratio == "1:1":
-        return "square"
-    return "landscape"
+def _inline_asset_from_value(asset_value: str | None) -> dict[str, str] | None:
+    if not asset_value:
+        return None
 
-
-def generate_video_from_image_url(
-    image_url: str | None,
-    token: Optional[str] = None,
-    prompt: str = "",
-    model: str = VIDEO_MODEL,
-    enhance_prompt: bool = False,
-    enable_upsample: bool = False,
-    aspect_ratio: str = "9:16",
-    last_frame_url: Optional[str] = None,
-    extra_image_urls: Optional[list[str]] = None,
-) -> Dict[str, Any]:
-    token = _video_api_token(token)
-
-    if _is_302_provider():
-        if not image_url:
-            raise ValueError("302.ai veo3-pro-frames requires input_image.")
-        payload_json = {
-            "text_prompt": prompt,
-            "input_image": image_url,
-            "aspect_ratio": aspect_ratio,
-            "enable_upsample": VIDEO_ENABLE_UPSAMPLE,
-            "enhance_prompt": VIDEO_ENHANCE_PROMPT,
-            "generate_audio": VIDEO_GENERATE_AUDIO,
-            "audio": VIDEO_GENERATE_AUDIO,
+    normalized = asset_value
+    if Path(asset_value).exists():
+        normalized = _file_to_data_url(asset_value)
+    if normalized and normalized.startswith("data:") and ";base64," in normalized:
+        header, encoded = normalized.split(",", 1)
+        mime_type = header[5:].split(";", 1)[0] or "image/jpeg"
+        return {
+            "mimeType": mime_type,
+            "bytesBase64Encoded": encoded,
         }
-        response = _request_json("POST", VIDEO_302_SUBMIT_URL, token, payload_json)
-        video_id = _extract_video_id(response)
-        if video_id and "id" not in response:
-            response["id"] = video_id
-        response["provider"] = "302.ai"
-        response["model"] = VIDEO_MODEL
-        return response
 
-    conn = http.client.HTTPSConnection(API_HOST, timeout=60)
-    payload_json = {
-        "prompt": prompt,
-        "model": model,
-        "enhance_prompt": enhance_prompt,
-        "enable_upsample": enable_upsample,
-        "aspect_ratio": aspect_ratio,
-        "orientation": _orientation_for_ratio(aspect_ratio),
-        "size": VIDEO_SIZE,
-        "generate_audio": VIDEO_GENERATE_AUDIO,
-        "audio": VIDEO_GENERATE_AUDIO,
-    }
-    images = [value for value in [image_url, *(extra_image_urls or []), last_frame_url] if value]
-    if images:
-        payload_json["images"] = images
-
-    payload = json.dumps(payload_json, ensure_ascii=False)
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
-    conn.request("POST", API_PATH, body=payload.encode("utf-8"), headers=headers)
-    res = conn.getresponse()
-    raw = res.read()
-    text = raw.decode("utf-8", errors="replace")
-
-    if res.status < 200 or res.status >= 300:
-        raise RuntimeError(f"API request failed: {res.status} {res.reason}; response: {text}")
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"raw": text}
+    if asset_value.startswith(("http://", "https://")):
+        request = urllib.request.Request(asset_value, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request, timeout=VIDEO_HTTP_TIMEOUT_SECONDS) as response:
+            payload = response.read()
+            mime_type = response.headers.get_content_type() or "image/jpeg"
+        return {
+            "mimeType": mime_type,
+            "bytesBase64Encoded": base64.b64encode(payload).decode("utf-8"),
+        }
+    return None
 
 
-def query_video(video_id: str, token: Optional[str] = None) -> Dict[str, Any]:
-    token = _video_api_token(token)
-
-    if _is_302_provider():
-        query_url = _append_query(VIDEO_302_QUERY_URL, {"request_id": video_id})
-        response = _request_json("GET", query_url, token)
-        response["provider"] = "302.ai"
-        return response
-
-    conn = http.client.HTTPSConnection(API_HOST, timeout=60)
-    query = urlencode({"id": video_id})
-    path = f"/v1/video/query?{query}"
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
-    conn.request("GET", path, body="", headers=headers)
-    res = conn.getresponse()
-    raw = res.read()
-    text = raw.decode("utf-8", errors="replace")
-
-    if res.status < 200 or res.status >= 300:
-        raise RuntimeError(f"API query failed: {res.status} {res.reason}; response: {text}")
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"raw": text}
+def _google_duration_seconds(duration_seconds: int | float) -> int:
+    if VIDEO_RESOLUTION == "1080p":
+        return 8
+    target = int(round(float(duration_seconds or 0))) if duration_seconds else 0
+    allowed = (4, 6, 8)
+    if target in allowed:
+        return target
+    if target <= 0:
+        target = 8
+    return min(allowed, key=lambda option: (abs(option - target), option))
 
 
-def wait_for_video_completion(
-    video_id: str,
-    token: Optional[str] = None,
-    poll_interval: float = 15.0,
-    timeout: Optional[float] = 1200.0,
-) -> Tuple[Dict[str, Any], Optional[str]]:
-    start = time.time()
-    while True:
-        try:
-            resp = query_video(video_id, token=token)
-        except Exception as exc:
-            message = str(exc)
-            transient_markers = [
-                "Too many connections",
-                "429",
-                "500 Internal Server Error",
-                "502 Bad Gateway",
-                "503 Service Unavailable",
-            ]
-            if any(marker in message for marker in transient_markers):
-                if timeout is not None and (time.time() - start) > timeout:
-                    raise TimeoutError(
-                        f"Timed out while waiting for video generation after transient query errors. Last error: {message}"
-                    ) from exc
-                time.sleep(max(poll_interval, 15.0))
-                continue
-            raise
+def _google_person_generation(has_reference_image: bool) -> str:
+    return "allow_adult" if has_reference_image else "allow_all"
 
-        status = _extract_status(resp)
-        video_url = _find_video_url(resp)
 
-        if status == "completed" or video_url:
-            return resp, video_url
+def _should_use_reference_images() -> bool:
+    return VIDEO_REFERENCE_MODE in {"image", "images", "hybrid"}
 
-        if status in {"failed", "error", "canceled", "cancelled"}:
-            raise RuntimeError(f"Video generation failed with status {status}: {json.dumps(resp, ensure_ascii=False)}")
 
-        if timeout is not None and (time.time() - start) > timeout:
-            raise TimeoutError(f"Timed out while waiting for video generation. Last status: {status}")
-
-        time.sleep(poll_interval)
+def _compact_value_list(value: Any, limit: int) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()][:limit]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
 
 
 def crop_image_to_ratio(src_path: str, ratio: str = "9:16") -> str:
@@ -473,63 +266,133 @@ def crop_image_to_ratio(src_path: str, ratio: str = "9:16") -> str:
         return src_path
 
 
+def generate_video_from_image_url(
+    image_url: str | None,
+    prompt: str = "",
+    model: str = VIDEO_MODEL,
+    aspect_ratio: str = "9:16",
+    duration_seconds: int = 8,
+    last_frame_url: Optional[str] = None,
+    extra_image_urls: Optional[list[str]] = None,
+) -> Dict[str, Any]:
+    image_part = _inline_asset_from_value(image_url)
+    last_frame_part = _inline_asset_from_value(last_frame_url)
+    reference_parts = [part for part in (_inline_asset_from_value(url) for url in (extra_image_urls or [])[:3]) if part]
+
+    instance: dict[str, Any] = {"prompt": prompt}
+    if image_part:
+        instance["image"] = image_part
+    if last_frame_part:
+        instance["lastFrame"] = last_frame_part
+    if reference_parts:
+        instance["referenceImages"] = reference_parts
+
+    payload_json = {
+        "instances": [instance],
+        "parameters": {
+            "aspectRatio": aspect_ratio,
+            "resolution": VIDEO_RESOLUTION,
+            "durationSeconds": _google_duration_seconds(duration_seconds),
+            "personGeneration": _google_person_generation(bool(image_part or last_frame_part or reference_parts)),
+        },
+    }
+    if VIDEO_NEGATIVE_PROMPT:
+        payload_json["parameters"]["negativePrompt"] = VIDEO_NEGATIVE_PROMPT
+
+    response = _request_json("POST", _google_submit_url(model), payload_json)
+    if "id" not in response and response.get("name"):
+        response["id"] = response["name"]
+    response["provider"] = VIDEO_PROVIDER
+    response["model"] = model
+    return response
+
+
+def query_video(video_id: str) -> Dict[str, Any]:
+    response = _request_json("GET", _google_operation_url(video_id))
+    response["provider"] = VIDEO_PROVIDER
+    return response
+
+
+def wait_for_video_completion(
+    video_id: str,
+    poll_interval: float = 15.0,
+    timeout: Optional[float] = 1200.0,
+) -> Tuple[Dict[str, Any], Optional[str]]:
+    start = time.time()
+    while True:
+        try:
+            resp = query_video(video_id)
+        except Exception as exc:
+            message = str(exc)
+            transient_markers = [
+                "429",
+                "RESOURCE_EXHAUSTED",
+                "timeout",
+                "timed out",
+                "500",
+                "502",
+                "503",
+            ]
+            if any(marker in message for marker in transient_markers):
+                if timeout is not None and (time.time() - start) > timeout:
+                    raise TimeoutError(
+                        f"Timed out while waiting for video generation after transient query errors. Last error: {message}"
+                    ) from exc
+                time.sleep(max(poll_interval, 15.0))
+                continue
+            raise
+
+        status = _extract_status(resp)
+        video_url = _find_video_url(resp)
+        if status == "completed" or video_url:
+            return resp, video_url
+        if status in {"failed", "error", "canceled", "cancelled"}:
+            raise RuntimeError(f"Video generation failed with status {status}: {json.dumps(resp, ensure_ascii=False)}")
+        if timeout is not None and (time.time() - start) > timeout:
+            raise TimeoutError(f"Timed out while waiting for video generation. Last status: {status}")
+        time.sleep(poll_interval)
+
+
 def _download_completed_video(video_id: str, video_url: str, clips_dir: Path) -> Dict[str, Any]:
     video_name = f"{uuid.uuid4()}.mp4"
     video_path = clips_dir / video_name
-    request = urllib.request.Request(video_url, headers={"User-Agent": "Mozilla/5.0"})
+    request = urllib.request.Request(
+        video_url,
+        headers={
+            "x-goog-api-key": _google_api_key(),
+            "User-Agent": "Mozilla/5.0",
+        },
+    )
     try:
-        with urllib.request.urlopen(request) as response:
+        with urllib.request.urlopen(request, timeout=VIDEO_HTTP_TIMEOUT_SECONDS) as response:
             video_bytes = response.read()
-    except Exception as first_exc:
-        if not _is_302_provider():
-            raise
-        auth_request = urllib.request.Request(
-            video_url,
-            headers={
-                "Authorization": f"Bearer {_video_api_token()}",
-                "User-Agent": "Mozilla/5.0",
-            },
-        )
-        try:
-            with urllib.request.urlopen(auth_request) as response:
-                video_bytes = response.read()
-        except Exception as second_exc:
-            raise RuntimeError(
-                f"Unable to download completed video from 302.ai URL: {video_url}. "
-                f"Unauthenticated error: {first_exc}; authenticated error: {second_exc}"
-            ) from second_exc
+    except Exception as exc:
+        raise RuntimeError(f"Unable to download completed video from Google Veo URL: {video_url}. Error: {exc}") from exc
     video_path.write_bytes(video_bytes)
 
     cap = cv2.VideoCapture(str(video_path))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     last_frame_index = frame_count - 1 if frame_count > 0 else 0
     cap.set(cv2.CAP_PROP_POS_FRAMES, last_frame_index)
-    _, frame = cap.read()
+    ok, frame = cap.read()
     cap.release()
 
     last_frame_path = clips_dir / f"{video_path.stem}_last_frame.jpg"
-    cv2.imwrite(str(last_frame_path), frame)
+    if ok and frame is not None:
+        cv2.imwrite(str(last_frame_path), frame)
+    else:
+        last_frame_path = Path("")
+
     actual_duration_seconds = probe_media_duration(str(video_path))
     return {
         "video_id": video_id,
         "video_url": video_url,
         "video_path": str(video_path),
-        "last_frame_path": str(last_frame_path),
+        "last_frame_path": str(last_frame_path) if str(last_frame_path) else "",
         "generation_mode": "remote",
         "duration_seconds": actual_duration_seconds,
+        "video_model": VIDEO_MODEL,
     }
-
-
-def _should_use_reference_images() -> bool:
-    return VIDEO_REFERENCE_MODE in {"image", "images", "hybrid"}
-
-
-def _compact_value_list(value: Any, limit: int) -> list[str]:
-    if isinstance(value, (list, tuple, set)):
-        return [str(item).strip() for item in value if str(item).strip()][:limit]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
 
 
 def _create_remote_video_with_retries(
@@ -537,6 +400,7 @@ def _create_remote_video_with_retries(
     prompt: str,
     last_frame_url: str | None,
     aspect_ratio: str,
+    duration_seconds: int,
     extra_image_urls: Optional[list[str]] = None,
     max_attempts: int = 3,
 ) -> Dict[str, Any]:
@@ -544,30 +408,26 @@ def _create_remote_video_with_retries(
     for attempt_index in range(1, max_attempts + 1):
         try:
             return generate_video_from_image_url(
-                image_url,
+                image_url=image_url,
                 prompt=prompt,
                 model=VIDEO_MODEL,
-                enhance_prompt=VIDEO_ENHANCE_PROMPT,
-                enable_upsample=VIDEO_ENABLE_UPSAMPLE,
-                last_frame_url=last_frame_url,
                 aspect_ratio=aspect_ratio,
+                duration_seconds=duration_seconds,
+                last_frame_url=last_frame_url,
                 extra_image_urls=extra_image_urls,
             )
         except Exception as exc:
             last_error = exc
             message = str(exc)
-            if attempt_index >= max_attempts or not any(
-                marker in message
-                for marker in [
-                    "429",
-                    "Too Many Requests",
-                    "上游负载已饱和",
-                    "500 Internal Server Error",
-                    "502 Bad Gateway",
-                    "503 Service Unavailable",
-                    "Too many connections",
-                ]
-            ):
+            transient_markers = [
+                "429",
+                "Too Many Requests",
+                "RESOURCE_EXHAUSTED",
+                "500",
+                "502",
+                "503",
+            ]
+            if attempt_index >= max_attempts or not any(marker in message for marker in transient_markers):
                 raise
             time.sleep(15.0 * attempt_index)
     if last_error is not None:
@@ -578,6 +438,7 @@ def _create_remote_video_with_retries(
 def _build_video_prompt(
     scene_info: str,
     visuals: Dict[str, Any],
+    scene_audio: Dict[str, Any] | None,
     aspect_ratio: str,
     duration_seconds: int,
     continuity: Dict[str, Any] | None = None,
@@ -614,11 +475,13 @@ def _build_video_prompt(
                 ),
             }
         else:
-            compact_structure = {
-                "summary": str(resolved_product_visual_structure or "")[:500],
-            }
+            compact_structure = {"summary": str(resolved_product_visual_structure or "")[:500]}
 
-        compact_signature_parts = [part.strip() for part in str(resolved_product_reference_signature or "").splitlines() if part.strip()]
+        compact_signature_parts = [
+            part.strip()
+            for part in str(resolved_product_reference_signature or "").splitlines()
+            if part.strip()
+        ]
         resolved_product_reference_signature = "\n".join(compact_signature_parts[:8])
         resolved_product_visual_structure = compact_structure
 
@@ -626,6 +489,7 @@ def _build_video_prompt(
     payload = {
         "scene_description": "" if generic_only else scene_info,
         "visuals": visuals,
+        "audio": scene_audio or {},
         "continuity": continuity or {},
         "duration_seconds": duration_seconds,
         "aspect_ratio": aspect_ratio,
@@ -641,6 +505,7 @@ def _build_video_prompt(
 def build_video_prompt(
     scene_info: str,
     visuals: Dict[str, Any],
+    scene_audio: Dict[str, Any] | None,
     aspect_ratio: str,
     duration_seconds: int,
     continuity: Dict[str, Any] | None = None,
@@ -653,6 +518,7 @@ def build_video_prompt(
     return _build_video_prompt(
         scene_info=scene_info,
         visuals=visuals,
+        scene_audio=scene_audio,
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
         continuity=continuity,
@@ -668,6 +534,7 @@ def generate_video_from_image_path(
     image_path,
     scene_info,
     visuals,
+    scene_audio: Dict[str, Any] | None = None,
     continuity: Dict[str, Any] | None = None,
     last_frame=None,
     until_finish: bool = True,
@@ -684,36 +551,38 @@ def generate_video_from_image_path(
 ):
     clips_dir = ensure_active_run().clips
     clips_dir.mkdir(parents=True, exist_ok=True)
-    use_original_storyboard = bool((meta or {}).get("skip_storyboard_crop_for_video", False))
-    cropped_path = str(image_path) if use_original_storyboard else crop_image_to_ratio(image_path, aspect_ratio)
+    use_original_storyboard = bool((meta or {}).get("skip_storyboard_crop_for_video", True))
+    prepared_path = str(image_path) if use_original_storyboard else crop_image_to_ratio(image_path, aspect_ratio)
+
+    requested_duration = _google_duration_seconds(duration_seconds)
     prompt_text = _build_video_prompt(
         scene_info,
         visuals,
+        scene_audio,
         aspect_ratio,
-        duration_seconds,
+        requested_duration,
         continuity=continuity,
         meta=meta,
         hero_product_name=hero_product_name,
         product_reference_signature=product_reference_signature,
         product_visual_structure=product_visual_structure,
     )
-    product_reference_urls = []
+
+    product_reference_urls: list[str] = []
     allow_product_reference_images_in_video = bool((meta or {}).get("allow_product_reference_images_in_video", False))
     if include_product_reference_images and allow_product_reference_images_in_video:
-        reference_source_paths = product_reference_paths
-        if reference_source_paths is None:
-            reference_source_paths = get_product_reference_images(limit=1 if strict_reference_only else 2)
+        reference_source_paths = product_reference_paths or get_product_reference_images(limit=1 if strict_reference_only else 2)
         product_reference_urls = [
-            _upload_image_for_remote_video(path)
+            _file_to_data_url(path)
             for path in reference_source_paths
-            if Path(path).resolve() != Path(cropped_path).resolve()
+            if Path(path).resolve() != Path(prepared_path).resolve()
         ]
         product_reference_urls = [url for url in product_reference_urls if url]
 
     if force_local:
         local_result = generate_local_clip(
-            cropped_path,
-            duration_seconds=duration_seconds,
+            prepared_path,
+            duration_seconds=requested_duration,
             aspect_ratio=aspect_ratio,
             output_dir=clips_dir,
         )
@@ -725,9 +594,9 @@ def generate_video_from_image_path(
     if _should_use_reference_images():
         remote_attempts.append(
             {
-                "image_url": _upload_image_for_remote_video(cropped_path),
+                "image_url": _file_to_data_url(prepared_path),
                 "extra_image_urls": product_reference_urls,
-                "last_frame_url": _upload_image_for_remote_video(last_frame) if last_frame else None,
+                "last_frame_url": _file_to_data_url(last_frame) if last_frame else None,
                 "prompt": prompt_text,
             }
         )
@@ -748,8 +617,9 @@ def generate_video_from_image_path(
                 "prompt": _build_video_prompt(
                     scene_info,
                     visuals,
+                    scene_audio,
                     aspect_ratio,
-                    duration_seconds,
+                    requested_duration,
                     continuity=continuity,
                     generic_only=True,
                     meta=meta,
@@ -767,11 +637,12 @@ def generate_video_from_image_path(
                 attempt["prompt"],
                 attempt["last_frame_url"],
                 aspect_ratio,
+                requested_duration,
                 extra_image_urls=attempt.get("extra_image_urls"),
             )
             video_id = _extract_video_id(response)
             if not video_id:
-                raise ValueError("Remote video API did not return a video_id.")
+                raise ValueError("Google Veo API did not return an operation name.")
             if not until_finish:
                 return {
                     "video_id": video_id,
@@ -781,15 +652,14 @@ def generate_video_from_image_path(
                     "last_frame_url": attempt["last_frame_url"],
                     "video_prompt": attempt["prompt"],
                     "generation_mode": "remote_pending",
-                    "planned_duration_seconds": duration_seconds,
+                    "planned_duration_seconds": requested_duration,
                 }
 
             _, video_url = wait_for_video_completion(video_id)
             if not video_url:
-                raise RuntimeError("Remote video finished without a downloadable URL.")
+                raise RuntimeError("Google Veo finished without a downloadable URL.")
             downloaded = _download_completed_video(video_id, video_url, clips_dir)
-            downloaded["video_model"] = VIDEO_MODEL
-            downloaded["planned_duration_seconds"] = duration_seconds
+            downloaded["planned_duration_seconds"] = requested_duration
             downloaded["video_prompt"] = attempt["prompt"]
             return downloaded
         except Exception as err:
@@ -798,8 +668,8 @@ def generate_video_from_image_path(
     print("Remote video generation failed, falling back to local clip: " + " | ".join(remote_errors))
     try:
         local_result = generate_local_clip(
-            cropped_path,
-            duration_seconds=duration_seconds,
+            prepared_path,
+            duration_seconds=requested_duration,
             aspect_ratio=aspect_ratio,
             output_dir=clips_dir,
         )
@@ -827,7 +697,7 @@ def get_video_path_from_video_id(video_id: str):
     if not video_url:
         return {
             "video_id": video_id,
-            "status": resp.get("status"),
-            "message": f"status {resp.get('status')}; response: {json.dumps(resp, ensure_ascii=False)}",
+            "status": _extract_status(resp),
+            "message": f"status {_extract_status(resp)}; response: {json.dumps(resp, ensure_ascii=False)}",
         }
     return _download_completed_video(video_id, video_url, clips_dir)

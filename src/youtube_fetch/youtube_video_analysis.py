@@ -6,23 +6,14 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
-from openai import OpenAI
+
+from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
 
 
 load_dotenv()
 
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
-DEFAULT_ANALYSIS_MODELS = [
-    model.strip()
-    for model in os.getenv("YOUTUBE_ANALYSIS_FALLBACK_MODELS", "gpt-5.2-all,gpt-5-mini,gpt-4o-mini,qwen3.6-plus").split(",")
-    if model.strip()
-]
-PRIMARY_ANALYSIS_MODEL = os.getenv("YOUTUBE_ANALYSIS_MODEL", DEFAULT_ANALYSIS_MODELS[0] if DEFAULT_ANALYSIS_MODELS else "gpt-5.2-all")
-
-client = OpenAI(
-    base_url="http://jeniya.cn/v1",
-    api_key=os.getenv("JENIYA_API_TOKEN"),
-)
+PRIMARY_ANALYSIS_MODEL = os.getenv("YOUTUBE_ANALYSIS_MODEL", DEFAULT_TEXT_MODEL)
 
 
 def _youtube_api_get(endpoint: str, params: dict[str, str]) -> dict[str, Any]:
@@ -130,51 +121,40 @@ def _build_analysis_payload(video_id: str) -> dict[str, Any]:
 
 
 def _analysis_prompt(metadata: dict[str, Any], extra_prompt: str | None = None) -> str:
-    extra_text = extra_prompt.strip() if extra_prompt else "无额外说明。"
+    extra_text = extra_prompt.strip() if extra_prompt else "No additional instruction."
     return (
-        "你是跨境电商广告导演与内容策略顾问。请基于下面这条 YouTube 视频的公开元数据、频道信息、标签与评论，"
-        "总结它对广告创意的可复用价值。注意：你不是直接看到了原始画面，所以凡是关于镜头、节奏、情绪的判断，"
-        "都要写成基于证据的推断，不要假装逐帧看过视频。\n\n"
-        "请输出一段 400-800 字中文分析，覆盖：\n"
-        "1. 可能的内容结构与开头钩子\n"
-        "2. 适合借鉴的镜头节奏、卖点组织与 CTA 方式\n"
-        "3. 适合迁移到“电动轮椅”广告里的风格要点\n"
-        "4. 不建议照搬的点\n"
-        "5. 最后给一个可直接塞进提示词的“风格参考总结”小段落\n\n"
-        f"额外说明：{extra_text}\n\n"
-        f"视频资料：\n{json.dumps(metadata, ensure_ascii=False, indent=2)}"
+        "You are a cross-border ecommerce ad strategist. "
+        "You only have public YouTube metadata, channel info, tags, and comments. "
+        "Do not pretend you watched the video frame by frame. "
+        "When you infer hook style, pacing, or emotional angle, explicitly treat it as an evidence-based inference.\n\n"
+        "Write a 5-part Chinese analysis covering:\n"
+        "1. Likely content structure and opening hook\n"
+        "2. Borrowable pacing, selling-point sequence, and CTA style\n"
+        "3. What can transfer into electric wheelchair advertising\n"
+        "4. What should not be copied\n"
+        "5. A short prompt-ready style summary block\n\n"
+        f"Additional instruction: {extra_text}\n\n"
+        f"Metadata:\n{json.dumps(metadata, ensure_ascii=False, indent=2)}"
     )
-
-
-def _complete_with_fallback(messages: list[dict[str, str]]) -> str:
-    candidate_models = [PRIMARY_ANALYSIS_MODEL] + [model for model in DEFAULT_ANALYSIS_MODELS if model != PRIMARY_ANALYSIS_MODEL]
-    last_error: Exception | None = None
-    for model in candidate_models:
-        try:
-            completion = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                timeout=300,
-            )
-            return completion.choices[0].message.content
-        except Exception as exc:
-            last_error = exc
-    raise RuntimeError(f"YouTube analysis failed across models: {last_error}")
 
 
 def analyze_video(video_id: str, prompt: str | None = None) -> str:
     metadata = _build_analysis_payload(video_id)
-    messages = [
-        {
-            "role": "system",
-            "content": "你擅长把竞品视频信号转成可执行的商品广告风格参考。",
-        },
-        {
-            "role": "user",
-            "content": _analysis_prompt(metadata, extra_prompt=prompt),
-        },
-    ]
-    return _complete_with_fallback(messages)
+    response = generate_content(
+        model=PRIMARY_ANALYSIS_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": "Turn public competitor-video signals into practical advertising style guidance.",
+            },
+            {
+                "role": "user",
+                "content": _analysis_prompt(metadata, extra_prompt=prompt),
+            },
+        ],
+        timeout_seconds=180.0,
+    )
+    return extract_response_text(response)
 
 
 if __name__ == "__main__":

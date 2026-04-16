@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
-import mimetypes
 import os
 from pathlib import Path
 
-import cv2
-import numpy as np
 from dotenv import load_dotenv
-from openai import OpenAI
+
+from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content, image_part_from_path
 from workspace_paths import PROJECT_ROOT, cache_root
 
 try:
@@ -25,13 +22,26 @@ CACHE_PATH = cache_root() / "product_visual_structure_cache.json"
 LEGACY_CACHE_PATHS = [
     PROJECT_ROOT / "product_visual_structure_cache.json",
 ]
-VISION_MODEL = os.getenv("VISION_MODEL", os.getenv("META_MODEL", "gpt-5.2-all"))
-VISION_TIMEOUT_SECONDS = float(os.getenv("VISION_TIMEOUT_SECONDS", "45"))
-client = OpenAI(
-    base_url="http://jeniya.cn/v1",
-    api_key=os.getenv("JENIYA_API_TOKEN"),
-    timeout=VISION_TIMEOUT_SECONDS,
-)
+VISION_MODEL = os.getenv("VISION_MODEL", os.getenv("META_MODEL", DEFAULT_TEXT_MODEL))
+
+VISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "array", "items": {"type": "string"}},
+        "frame": {"type": "array", "items": {"type": "string"}},
+        "seat_and_backrest": {"type": "array", "items": {"type": "string"}},
+        "armrests": {"type": "array", "items": {"type": "string"}},
+        "controller": {"type": "array", "items": {"type": "string"}},
+        "side_housing": {"type": "array", "items": {"type": "string"}},
+        "rear_wheels": {"type": "array", "items": {"type": "string"}},
+        "front_casters": {"type": "array", "items": {"type": "string"}},
+        "footrests": {"type": "array", "items": {"type": "string"}},
+        "rear_details": {"type": "array", "items": {"type": "string"}},
+        "colors_and_materials": {"type": "array", "items": {"type": "string"}},
+        "must_keep": {"type": "array", "items": {"type": "string"}},
+        "must_avoid": {"type": "array", "items": {"type": "string"}},
+    },
+}
 
 
 def _load_json_object(raw_text: str) -> dict:
@@ -47,7 +57,6 @@ def _load_json_object(raw_text: str) -> dict:
         return json.loads(text)
     except Exception:
         pass
-
     start = text.find("{")
     end = text.rfind("}")
     if start >= 0 and end > start:
@@ -59,31 +68,6 @@ def _load_json_object(raw_text: str) -> dict:
                 pass
         return json.loads(sliced)
     return {}
-
-
-def _encode_reference_image(path: str, max_edge: int = 1280, jpeg_quality: int = 82) -> str:
-    resolved = Path(path).resolve()
-    image_bytes = resolved.read_bytes()
-    image_buffer = np.frombuffer(image_bytes, dtype=np.uint8)
-    image = cv2.imdecode(image_buffer, cv2.IMREAD_COLOR)
-    mime = mimetypes.guess_type(str(resolved))[0] or "image/jpeg"
-    payload = image_bytes
-
-    if image is not None:
-        height, width = image.shape[:2]
-        longest_edge = max(height, width)
-        if longest_edge > max_edge:
-            scale = max_edge / float(longest_edge)
-            resized_width = max(1, int(round(width * scale)))
-            resized_height = max(1, int(round(height * scale)))
-            image = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
-        ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
-        if ok:
-            payload = encoded.tobytes()
-            mime = "image/jpeg"
-
-    encoded_text = base64.b64encode(payload).decode("utf-8")
-    return f"data:{mime};base64,{encoded_text}"
 
 
 def _reference_cache_key(reference_image_paths: list[str], model: str = VISION_MODEL) -> str:
@@ -113,7 +97,6 @@ def _read_cache() -> dict:
     current_payload = _load_cached_payload(CACHE_PATH)
     if current_payload:
         return current_payload
-
     for legacy_path in LEGACY_CACHE_PATHS:
         legacy_payload = _load_cached_payload(legacy_path)
         if not legacy_payload:
@@ -140,43 +123,42 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
     if not force_refresh and cached.get("cache_key") == cache_key and isinstance(cached.get("structure"), dict):
         return cached["structure"]
 
-    user_content = [
+    user_parts = [
         {
-            "type": "text",
             "text": (
                 "Analyze the wheelchair shown in these white-background product photos. "
                 "Identify only visible physical structure and appearance. "
                 "For advertising generation, treat any rear/lower removable battery pack or exposed battery cable as an omitted accessory, not a required visible feature. "
-                "Do not describe folded, semi-folded, collapsed, storage, or folding/unfolding configurations as required output; the product should be represented in normal open riding position. "
-                "Return one valid JSON object with these keys exactly: "
-                "summary, frame, seat_and_backrest, armrests, controller, side_housing, rear_wheels, "
-                "front_casters, footrests, rear_details, colors_and_materials, must_keep, must_avoid. "
-                "Use concise phrases or short sentences. "
-                "Do not describe the studio background, humans, marketing claims, or speculative internals."
-            ),
+                "Do not describe folded, semi-folded, collapsed, storage, or folding/unfolding configurations as required output. "
+                "Return one JSON object only with these keys exactly: "
+                "summary, frame, seat_and_backrest, armrests, controller, side_housing, rear_wheels, front_casters, footrests, rear_details, colors_and_materials, must_keep, must_avoid."
+            )
         }
     ]
     for path in resolved_paths:
-        user_content.append({"type": "image_url", "image_url": _encode_reference_image(path)})
+        user_parts.append(image_part_from_path(path))
 
-    completion = client.chat.completions.create(
+    response = generate_content(
         model=VISION_MODEL,
         messages=[
             {
                 "role": "system",
                 "content": (
                     "You are a product visual structure analyst. "
-                    "You inspect multiple reference photos of the same product and summarize the exact visible structure. "
-                    "Be strict about observable geometry and appearance, while excluding rear/lower removable battery packs, exposed battery cables, and folding-state demonstrations from required advertising visuals."
+                    "Summarize exact visible geometry and appearance only. "
+                    "Exclude rear/lower removable battery packs, exposed battery cables, and folding-state demonstrations from required advertising visuals."
                 ),
             },
             {
                 "role": "user",
-                "content": user_content,
+                "content": user_parts,
             },
         ],
+        response_mime_type="application/json",
+        response_json_schema=VISION_SCHEMA,
+        timeout_seconds=180.0,
     )
-    content = completion.choices[0].message.content
+    content = extract_response_text(response)
     structure = _load_json_object(content)
     if not isinstance(structure, dict) or not structure:
         raise RuntimeError(f"Unable to parse product visual structure JSON: {content}")
@@ -224,6 +206,5 @@ def format_product_visual_structure(structure: dict) -> str:
         values = _as_list(structure.get(key))
         if not values:
             continue
-        joined = "; ".join(values)
-        lines.append(f"{label}: {joined}")
+        lines.append(f"{label}: {'; '.join(values)}")
     return "\n".join(lines)

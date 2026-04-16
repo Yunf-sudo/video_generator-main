@@ -13,14 +13,15 @@ PRODUCT_REFERENCE_DIR_CANDIDATES = [
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 PRODUCT_VISUAL_EXCLUSION_RULES = (
     "Production rendering exclusions: show the wheelchair only in its normal open riding position. "
+    "Keep the rear/top-back structure compact, realistic, and proportional to the real product. "
+    "Do not invent extra protruding rods, poles, antenna-like parts, cane-like extensions, exaggerated push bars, or any long metal tubes sticking up behind the backrest. "
+    "If short integrated rear handles are naturally visible from a reference-consistent angle, keep them subtle, short, close to the backrest, and never the hero feature. "
     "Do not show any rear/lower external battery pack, removable battery, dangling or exposed battery cable, "
     "folded chair, semi-folded chair, collapsed chair, compact storage form, or folding/unfolding demonstration. "
     "If a reference photo contains a rear lower battery pack, treat it as an omitted accessory for advertising visuals; "
     "hide it by angle, rider body, shadow, or framing while preserving the rest of the wheelchair identity. "
-    "Preserve the paired upper rear push handles as slim handles visible above or just behind the backrest from side/front-profile angles; "
-    "do not omit them, melt them into the backrest, or confuse them with a rear/lower battery box. "
     "Never use a rear-facing or rear three-quarter product angle for ad generation. Keep the back panel and lower rear quadrant "
-    "out of frame or fully occluded while the upper push handles remain readable. Do not render any rectangular box mounted behind or below the seat; that area should read as "
+    "out of frame or fully occluded, and keep the rear silhouette clean and compact. Do not render any rectangular box mounted behind or below the seat; that area should read as "
     "open tubular frame, wheel shadow, or plain dark under-seat space. Prefer front, front three-quarter, or joystick-side front-profile framing. "
     "The camera must not sit behind the rider; in lifestyle scenes the viewer should be able to see the rider's front torso, "
     "soft facial profile, right forearm, and right-side joystick hand. Treat rear backrest color details as nonessential for advertising shots; "
@@ -40,11 +41,22 @@ REAR_DETAIL_BLOCKLIST = (
     "red fabric strip",
     "red mesh",
     "backrest accent",
+    "push handle",
+    "rear caregiver",
+    "vertical tube",
+    "rearward-curved rubber grip",
+    "handle horn",
+    "long rod",
+    "pole",
+    "antenna-like",
+    "push bar",
 )
 PREFERRED_REFERENCE_BASENAMES = [
-    "DSC_0384.JPG",
-    "DSC_0395.JPG",
     "DSC_0401.JPG",
+    "DSC_0400.JPG",
+    "DSC_0396.JPG",
+    "DSC_0395.JPG",
+    "DSC_0384.JPG",
 ]
 
 
@@ -115,8 +127,8 @@ def get_product_reference_signature() -> str:
         "a black seat cushion and black backrest. "
         "There is a joystick controller mounted on the rider's right side above the armrest and a dark gray side housing "
         "with a smooth wave-like contour under the armrest, large rear drive wheels with silver hub covers and red center caps, "
-        "small black front casters with thin multi-spoke rims, black swing-away footrests and footplates, and paired upper rear push handles "
-        "rising as slim handles above or just behind the backrest. "
+        "small black front casters with thin multi-spoke rims, black swing-away footrests and footplates, and a compact top-back area "
+        "with no exaggerated rear rods, poles, or oversized push bars. "
         "Do not replace it with a generic rehab wheelchair, molded shell chair, thick-spoke manual chair, or a different frame shape. "
         "Keep the same proportions, frame geometry, wheel layout, armrest shape, controller placement, side housing, and wheel hubs as the real product photos. "
         f"{PRODUCT_VISUAL_EXCLUSION_RULES}"
@@ -135,6 +147,10 @@ def _strip_rear_detail_language(text: str) -> str:
         "red backrest accent": "small side-visible red hub accents",
         "red accent on backrest": "small side-visible red hub accent",
         "red upholstery accent": "small side-visible red hub accent",
+        "two tall black rear caregiver push handles": "compact top-back structure",
+        "left/right vertical tubes rising clearly above the backrest": "compact rear silhouette",
+        "short rearward-curved rubber grips": "subtle integrated rear details",
+        "two small handle horns above the backrest": "a compact top-back profile",
     }
     cleaned = text
     for old, new in replacements.items():
@@ -171,9 +187,6 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
         if any(term in lowered for term in REAR_DETAIL_BLOCKLIST):
             continue
         must_keep.append(_strip_rear_detail_language(text))
-    handle_keep = "paired upper rear push handles visible as slim handles above or just behind the backrest from side/front-profile angles"
-    if handle_keep not in must_keep:
-        must_keep.append(handle_keep)
     sanitized["must_keep"] = must_keep
 
     for key, value in list(sanitized.items()):
@@ -190,6 +203,8 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
         "rectangular box behind or below the seat",
         "rear/lower battery pack or exposed cables",
         "folded or collapsed configurations",
+        "extra protruding rods, poles, antenna-like parts, or exaggerated push bars behind the backrest",
+        "overstated rear-handle geometry that extends far above the backrest",
     ]:
         if item not in must_avoid:
             must_avoid.append(item)

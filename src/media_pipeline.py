@@ -152,9 +152,18 @@ def _extract_scenes(script: dict | None) -> list[dict]:
 
 def _scene_voice_text(scene: dict) -> str:
     audio = scene.get("audio", {}) if isinstance(scene, dict) else {}
+    scene_voiceover = (
+        scene.get("voiceover")
+        or scene.get("voice_over")
+        or scene.get("voiceover_en")
+        or scene.get("narration")
+        or ""
+    ).strip()
     return (
-        (audio.get("text") or "").strip()
+        scene_voiceover
+        or (audio.get("subtitle_text") or "").strip()
         or (audio.get("voice_over") or "").strip()
+        or (audio.get("text") or "").strip()
         or (scene.get("key_message") or "").strip()
     )
 
@@ -461,35 +470,94 @@ def _merge_videos_with_transitions(
     transition_name: str = "fade",
     transition_duration: float = 0.35,
     aspect_ratio: str = "9:16",
+    preserve_audio: bool = False,
 ) -> str:
     width, height = _video_size_for_ratio(aspect_ratio)
     if len(video_paths) < 2 or transition_duration <= 0:
         manifest_path = _write_concat_manifest(video_paths, output_dir)
         merged_video_path = output_dir / f"merged_{uuid.uuid4().hex}.mp4"
-        subprocess.run(
-            [
-                ffmpeg,
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(manifest_path),
-                "-vf",
-                f"fps=24,scale={width}:{height}:force_original_aspect_ratio=increase,"
-                f"crop={width}:{height},setsar=1,format=yuv420p",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-an",
-                str(merged_video_path),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        if preserve_audio:
+            concat_copy = subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(manifest_path),
+                    "-c",
+                    "copy",
+                    str(merged_video_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if concat_copy.returncode != 0:
+                command = [ffmpeg, "-y"]
+                filter_parts: list[str] = []
+                concat_inputs: list[str] = []
+                for index, video_path in enumerate(video_paths):
+                    command.extend(["-i", str(Path(video_path).resolve())])
+                    filter_parts.append(
+                        f"[{index}:v]fps=24,scale={width}:{height}:force_original_aspect_ratio=increase,"
+                        f"crop={width}:{height},setsar=1,format=yuv420p[v{index}]"
+                    )
+                    filter_parts.append(f"[{index}:a]aresample=48000[a{index}]")
+                    concat_inputs.extend([f"[v{index}]", f"[a{index}]"])
+                filter_parts.append(
+                    "".join(concat_inputs) + f"concat=n={len(video_paths)}:v=1:a=1[vout][aout]"
+                )
+                command.extend(
+                    [
+                        "-filter_complex",
+                        ";".join(filter_parts),
+                        "-map",
+                        "[vout]",
+                        "-map",
+                        "[aout]",
+                        "-c:v",
+                        "libx264",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-c:a",
+                        "aac",
+                        str(merged_video_path),
+                    ]
+                )
+                subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+        else:
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(manifest_path),
+                    "-vf",
+                    f"fps=24,scale={width}:{height}:force_original_aspect_ratio=increase,"
+                    f"crop={width}:{height},setsar=1,format=yuv420p",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-an",
+                    str(merged_video_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
         return str(merged_video_path)
 
     normalized_streams: list[str] = []
@@ -619,13 +687,14 @@ def assemble_final_video(
     transition_name: str | None = None,
     transition_duration: float = 0.0,
     aspect_ratio: str = "9:16",
+    preserve_clip_audio: bool = False,
 ) -> dict:
     if not video_paths:
         raise ValueError("No video clips provided for final assembly.")
 
     output_root = ensure_dir(output_dir or ensure_active_run().exports)
     ffmpeg = find_binary("ffmpeg")
-    prepared_video_paths = _prepare_clips_for_assembly(
+    prepared_video_paths = video_paths if preserve_clip_audio else _prepare_clips_for_assembly(
         video_paths,
         scene_duration_map,
         ffmpeg,
@@ -640,6 +709,7 @@ def assemble_final_video(
             transition_name=transition_name or "fade",
             transition_duration=transition_duration if transition_name else 0.0,
             aspect_ratio=aspect_ratio,
+            preserve_audio=preserve_clip_audio and not audio_path,
         )
     )
 

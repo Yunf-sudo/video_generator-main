@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -14,9 +15,9 @@ from generate_script_tools import generate_scripts, repair_script
 from generate_tts_audio import generate_tts_audio
 from generate_video_tools import generate_video_from_image_path, get_video_path_from_video_id
 from media_pipeline import assemble_final_video, build_scene_audio_duration_map
-from quick_cut import quick_cut_video, upload_all_videos_to_rustfs
+from quick_cut import capcut_service_status, get_capcut_api_url, quick_cut_video, upload_all_videos_to_rustfs
 from ti_intro_generate_tools import generate_ti_intro
-from workspace_paths import activate_run, run_paths, start_new_run, write_run_json
+from workspace_paths import activate_run, run_paths, runs_root, start_new_run, write_run_json
 from youtube_fetch.youtube_video_analysis import analyze_video
 
 
@@ -30,16 +31,16 @@ STYLE_PRESETS = {
 DEFAULT_INPUTS = {
     "product_name": "AnyWell 电动轮椅",
     "product_category": "电动轮椅 / mobility chair",
-    "campaign_goal": "生成一条面向欧美市场的竖版情感广告视频，突出大体型老年人重新安全走向户外的自由感和尊严感",
+    "campaign_goal": "生成一条面向欧美市场的竖版情感广告视频，突出明显肥胖/大体重老年人重新安全走向户外的自由感和尊严感",
     "target_market": "美国、加拿大、英国和西欧",
-    "target_audience": "欧美市场肥胖或大体型老年人、配偶、35-55 岁成年子女，以及正在为家人评估户外出行辅助产品的家庭",
-    "core_selling_points": "- 平顺双动力系统\n- 稳定的户外通行支持\n- 温和起步和可控转向\n- 支持大体型长者安心回到户外",
+    "target_audience": "欧美市场明显肥胖、heavyset、plus-size 老年人、配偶、35-55 岁成年子女，以及正在为家人评估户外出行辅助产品的家庭",
+    "core_selling_points": "- 平顺双动力系统\n- 稳定的户外通行支持\n- 温和起步和可控转向\n- 支持明显肥胖/大体重长者安心回到户外",
     "use_scenarios": "- 家庭门口和坡道\n- 后院小路\n- 林地边缘或安静社区道路\n- 与伴侣一起外出看风景",
     "style_preset": "家庭关怀型",
     "custom_style_notes": STYLE_PRESETS["家庭关怀型"],
     "style_tone": "温暖、克制、真实、电影感，避免煽情和医疗化表达",
-    "consistency_anchor": "同一台 AnyWell 电动轮椅，保持一致的车架、扶手、脚踏、轮胎尺寸、右侧摇杆、坐垫、侧面外壳和后方上部成对推把。推把应作为细长把手稳定可见，但不能展示后下方电池包、线缆、折叠或收纳形态。",
-    "additional_info": "乘坐者应是同一位有尊严的肥胖或大体型欧美老年人，体型、服装、姿态和身份在所有镜头中保持一致。自操作时右手必须握在右侧摇杆上；如果右手不在摇杆上，必须明显有人握住后方推把推动。白底产品图只作为外观参考，不能作为广告画面或闪帧出现。",
+    "consistency_anchor": "Match the same AnyWell electric wheelchair across all scenes: consistent frame, armrest, footrest, wheel size, right-side joystick, seat cushion, and side housing. Keep the rear/top-back structure compact and proportional to the real product. Do not invent extra rods, poles, antenna-like parts, cane-like extensions, or exaggerated push bars behind the backrest. Do not show a rear/lower battery pack, exposed cable, folded state, or storage configuration.",
+    "additional_info": "The rider should be the same dignified heavyset or plus-size Western senior across all scenes, clearly broader than an average or slightly stocky build. Show a broad torso and shoulders, rounded belly under normal clothing, thicker arms and legs, and a seated posture that naturally fills the wheelchair seat. Keep body type, wardrobe, posture, and identity consistent. During self-operated motion, the right hand should remain on the right-side joystick. Do not present the chair as autonomous hands-free motion. If short integrated rear handles are naturally visible, keep them subtle, short, close to the backrest, and never the visual focus. White-background product photos are identity references only and must never appear as ad frames or flash cuts.",
     "language": "English",
     "video_orientation": "9:16",
     "desired_scene_count": 5,
@@ -48,12 +49,25 @@ DEFAULT_INPUTS = {
 }
 
 MODEL_SUMMARY = {
-    "脚本": os.getenv("SCRIPT_MODEL", "gpt-5.2-all"),
-    "分镜图": os.getenv("IMAGE_MODEL", "gpt-image-1.5-all"),
-    "视频": os.getenv("VIDEO_MODEL", "veo3-pro-frames"),
-    "TTS": os.getenv("TTS_MODEL", "gpt-4o-mini-tts"),
-    "竞品分析": os.getenv("YOUTUBE_ANALYSIS_MODEL", "gpt-5.2-all"),
+    "脚本": os.getenv("SCRIPT_MODEL", "gemini-2.5-flash"),
+    "分镜图": os.getenv("IMAGE_MODEL", "gemini-2.5-flash-image"),
+    "视频": os.getenv("VIDEO_MODEL", "veo-3.1-generate-preview"),
+    "TTS": os.getenv("TTS_MODEL", "native-video-audio"),
+    "竞品分析": os.getenv("YOUTUBE_ANALYSIS_MODEL", "gemini-2.5-flash"),
 }
+
+USE_GENERATED_VIDEO_AUDIO = os.getenv("USE_GENERATED_VIDEO_AUDIO", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+STEP_OPTIONS = ["产品简报", "广告脚本", "分镜图", "视频片段", "配音字幕", "导出成片"]
+RECOVERABLE_META_FILES = (
+    "script.json",
+    "storyboard.json",
+    "video_result.json",
+    "video_result_partial.json",
+    "tts_result.json",
+    "final_video_result.json",
+    "capcut_result.json",
+)
 
 
 st.set_page_config(page_title="电动轮椅广告工作台", layout="wide")
@@ -63,24 +77,192 @@ def _coerce_dict(value):
     return value if isinstance(value, dict) else {}
 
 
+def _coerce_list(value):
+    return value if isinstance(value, list) else []
+
+
+def _get_query_run_id() -> str:
+    try:
+        value = st.query_params.get("run_id", "")
+    except Exception:
+        try:
+            value = st.experimental_get_query_params().get("run_id", [""])[0]
+        except Exception:
+            return ""
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return str(value or "").strip()
+
+
+def _set_query_run_id(run_id: str) -> None:
+    run_id = str(run_id or "").strip()
+    if not run_id or _get_query_run_id() == run_id:
+        return
+    try:
+        st.query_params["run_id"] = run_id
+    except Exception:
+        try:
+            st.experimental_set_query_params(run_id=run_id)
+        except Exception:
+            pass
+
+
+def _read_run_json(run_id: str, filename: str, default=None):
+    path = runs_root() / run_id / "meta" / filename
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def _infer_final_video_result_from_exports(run_id: str, tts_result: dict | None = None) -> dict | None:
+    export_dir = runs_root() / run_id / "exports"
+    if not export_dir.exists():
+        return None
+    candidates = [
+        path
+        for path in export_dir.glob("*.mp4")
+        if path.is_file() and not path.name.startswith(("merged_", "aligned_", "with_audio_"))
+    ]
+    if not candidates:
+        return None
+    latest = max(candidates, key=lambda path: path.stat().st_mtime)
+    tts_result = _coerce_dict(tts_result)
+    subtitle_path = tts_result.get("srt_path") or ""
+    audio_path = tts_result.get("file_path") or ""
+    return {
+        "video_path": str(latest),
+        "video_url": latest.resolve().as_uri(),
+        "subtitle_path": subtitle_path,
+        "audio_path": audio_path,
+        "subtitles_burned": bool(subtitle_path and Path(subtitle_path).exists()),
+        "scene_duration_map": {},
+        "transition_name": "",
+        "transition_duration": 0.0,
+    }
+
+
+def list_recent_runs(limit: int = 20) -> list[Path]:
+    root = runs_root()
+    if not root.exists():
+        return []
+    run_dirs = [path for path in root.iterdir() if path.is_dir()]
+    run_dirs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return run_dirs[:limit]
+
+
+def run_has_recoverable_state(path: Path) -> bool:
+    meta_dir = path / "meta"
+    return any((meta_dir / filename).exists() for filename in RECOVERABLE_META_FILES)
+
+
+def list_recoverable_runs(limit: int = 20) -> list[Path]:
+    return [path for path in list_recent_runs(limit * 3) if run_has_recoverable_state(path)][:limit]
+
+
+def latest_recoverable_run_id(limit: int = 50) -> str:
+    for path in list_recoverable_runs(limit):
+        return path.name
+    return ""
+
+
+def _run_label(path: Path) -> str:
+    meta_dir = path / "meta"
+    marks = []
+    if (meta_dir / "script.json").exists():
+        marks.append("脚本")
+    if (meta_dir / "storyboard.json").exists():
+        marks.append("分镜")
+    if (meta_dir / "video_result.json").exists() or (meta_dir / "video_result_partial.json").exists():
+        marks.append("片段")
+    if (meta_dir / "final_video_result.json").exists():
+        marks.append("成片")
+    try:
+        updated = datetime.fromtimestamp(path.stat().st_mtime).strftime("%m-%d %H:%M")
+    except Exception:
+        updated = "未知时间"
+    status = " / ".join(marks) if marks else "空记录"
+    return f"{path.name} | {updated} | {status}"
+
+
+def load_run_state(run_id: str) -> bool:
+    run_id = str(run_id or "").strip()
+    run_root = runs_root() / run_id
+    if not run_id or not run_root.exists() or not run_root.is_dir():
+        return False
+    if not run_has_recoverable_state(run_root):
+        return False
+
+    activate_run(run_id)
+    st.session_state["run_id"] = run_id
+    _set_query_run_id(run_id)
+
+    brief = _coerce_dict(_read_run_json(run_id, "brief.json", {}))
+    brief_inputs = brief.get("inputs")
+    if isinstance(brief_inputs, dict):
+        st.session_state["inputs"] = {**DEFAULT_INPUTS, **brief_inputs}
+    else:
+        st.session_state["inputs"] = copy.deepcopy(DEFAULT_INPUTS)
+    st.session_state["reference_style"] = st.session_state["inputs"].get("reference_style", "")
+    st.session_state["reference_image_paths"] = _coerce_list(brief.get("reference_image_paths"))
+
+    st.session_state["script"] = _read_run_json(run_id, "script.json")
+    st.session_state["script_chat_messages"] = _coerce_list(
+        _read_run_json(run_id, "script_chat_messages.json", [])
+    )
+    st.session_state["storyboard"] = _coerce_list(_read_run_json(run_id, "storyboard.json", []))
+    video_result = _read_run_json(run_id, "video_result.json")
+    if video_result is None:
+        video_result = _read_run_json(run_id, "video_result_partial.json", {})
+    st.session_state["video_result"] = _coerce_dict(video_result)
+    st.session_state["ti_intro"] = _read_run_json(run_id, "ti_intro.json")
+    st.session_state["tts_result"] = _coerce_dict(_read_run_json(run_id, "tts_result.json", {}))
+    final_video_result = _read_run_json(run_id, "final_video_result.json")
+    if not isinstance(final_video_result, dict) or not final_video_result.get("video_path"):
+        final_video_result = _infer_final_video_result_from_exports(run_id, st.session_state["tts_result"])
+        if final_video_result:
+            write_run_json("final_video_result.json", final_video_result)
+    st.session_state["final_video_result"] = final_video_result
+    st.session_state["capcut_result"] = _read_run_json(run_id, "capcut_result.json")
+    st.session_state["active_step"] = infer_active_step()
+    return True
+
+
 def current_run_paths():
     run_id = st.session_state.get("run_id")
     if run_id:
+        _set_query_run_id(run_id)
         return activate_run(run_id)
     created = start_new_run(prefix="ad")
     st.session_state["run_id"] = created.run_id
+    _set_query_run_id(created.run_id)
     return created
 
 
 def create_new_run() -> str:
     created = start_new_run(prefix="ad")
     st.session_state["run_id"] = created.run_id
+    _set_query_run_id(created.run_id)
     return created.run_id
 
 
 def persist_run_json(filename: str, payload) -> None:
     current_run_paths()
     write_run_json(filename, payload)
+
+
+def persist_current_brief() -> None:
+    active_run = current_run_paths()
+    persist_run_json(
+        "brief.json",
+        {
+            "run_id": active_run.run_id,
+            "inputs": st.session_state.get("inputs", {}),
+            "reference_image_paths": st.session_state.get("reference_image_paths", []),
+        },
+    )
 
 
 def reset_generated_state() -> None:
@@ -101,6 +283,9 @@ def init_state() -> None:
         "reference_style": "",
         "competitor_video_id": "",
         "reference_image_paths": [],
+        "active_step": "产品简报",
+        "active_step_nav": "产品简报",
+        "active_step_nav_synced": "产品简报",
         "script": None,
         "script_chat_messages": [],
         "storyboard": [],
@@ -118,6 +303,14 @@ def init_state() -> None:
     st.session_state["inputs"] = {**DEFAULT_INPUTS, **_coerce_dict(st.session_state.get("inputs"))}
     st.session_state["video_result"] = _coerce_dict(st.session_state.get("video_result"))
     st.session_state["tts_result"] = _coerce_dict(st.session_state.get("tts_result"))
+
+    query_run_id = _get_query_run_id()
+    if query_run_id and not st.session_state.get("run_id"):
+        load_run_state(query_run_id)
+    if not st.session_state.get("run_id"):
+        latest_run_id = latest_recoverable_run_id()
+        if latest_run_id:
+            load_run_state(latest_run_id)
 
 
 def extract_youtube_video_id(value: str) -> str:
@@ -145,21 +338,44 @@ def persist_uploaded_files(upload_files) -> list[str]:
     return saved_paths
 
 
+def _safe_int(value, default: int = 999999) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def scene_list(script: dict | None) -> list[dict]:
-    if not script:
+    if not isinstance(script, dict):
         return []
     scenes_root = script.get("scenes")
+    if isinstance(scenes_root, list):
+        return [scene for scene in scenes_root if isinstance(scene, dict)]
     if isinstance(scenes_root, dict):
-        return scenes_root.get("scenes", [])
+        nested = scenes_root.get("scenes")
+        if isinstance(nested, list):
+            return [scene for scene in nested if isinstance(scene, dict)]
+    for key in ("scene_list", "script", "shots"):
+        value = script.get(key)
+        if isinstance(value, list):
+            return [scene for scene in value if isinstance(scene, dict)]
     return []
 
 
 def ordered_storyboard() -> list[dict]:
-    return sorted(st.session_state.get("storyboard", []), key=lambda item: int(item["scene_number"]))
+    frames = [item for item in st.session_state.get("storyboard", []) if isinstance(item, dict)]
+    return sorted(frames, key=lambda item: _safe_int(item.get("scene_number") or item.get("scene_id")))
 
 
 def ordered_video_results() -> list[tuple[str, dict]]:
-    return sorted(st.session_state.get("video_result", {}).items(), key=lambda item: int(item[0]))
+    results = st.session_state.get("video_result", {})
+    if isinstance(results, list):
+        pairs = [(str(index + 1), item) for index, item in enumerate(results) if isinstance(item, dict)]
+    elif isinstance(results, dict):
+        pairs = [(str(key), value) for key, value in results.items() if isinstance(value, dict)]
+    else:
+        pairs = []
+    return sorted(pairs, key=lambda item: _safe_int(item[0]))
 
 
 def ordered_clip_paths() -> list[str]:
@@ -176,6 +392,24 @@ def remote_clip_count() -> int:
 
 def local_preview_clip_count() -> int:
     return sum(1 for _, item in ordered_video_results() if item.get("generation_mode") == "local")
+
+
+def infer_active_step() -> str:
+    final_result = st.session_state.get("final_video_result")
+    if isinstance(final_result, dict) and final_result.get("video_path"):
+        return "导出成片"
+    if st.session_state.get("capcut_result"):
+        return "导出成片"
+    tts_result = _coerce_dict(st.session_state.get("tts_result"))
+    if tts_result.get("audio_url") or tts_result.get("file_path") or tts_result.get("srt_path"):
+        return "配音字幕"
+    if ordered_video_results():
+        return "视频片段"
+    if ordered_storyboard():
+        return "视频片段"
+    if scene_list(st.session_state.get("script")):
+        return "广告脚本"
+    return "产品简报"
 
 
 def build_scene_duration_map() -> dict[int, float]:
@@ -211,6 +445,20 @@ def all_clips_remote_ready() -> bool:
     return True
 
 
+def all_storyboard_clips_ready() -> bool:
+    frames = ordered_storyboard()
+    if not frames:
+        return False
+    results = st.session_state.get("video_result", {})
+    if len(results) < len(frames):
+        return False
+    for frame in frames:
+        current = results.get(str(frame["scene_number"]), {})
+        if not current.get("video_path"):
+            return False
+    return True
+
+
 def reset_downstream(from_stage: str) -> None:
     if from_stage == "script":
         st.session_state["storyboard"] = []
@@ -228,13 +476,36 @@ def reset_downstream(from_stage: str) -> None:
         st.session_state["tts_result"] = {}
         st.session_state["final_video_result"] = None
         st.session_state["capcut_result"] = None
+    else:
+        return
+
+    if not st.session_state.get("run_id"):
+        return
+    if from_stage == "script":
+        persist_run_json("storyboard.json", [])
+        persist_run_json("video_result.json", {})
+        persist_run_json("ti_intro.json", None)
+        persist_run_json("tts_result.json", {})
+        persist_run_json("final_video_result.json", None)
+        persist_run_json("capcut_result.json", None)
+    elif from_stage == "storyboard":
+        persist_run_json("video_result.json", {})
+        persist_run_json("tts_result.json", {})
+        persist_run_json("final_video_result.json", None)
+        persist_run_json("capcut_result.json", None)
+    elif from_stage == "clips":
+        persist_run_json("tts_result.json", {})
+        persist_run_json("final_video_result.json", None)
+        persist_run_json("capcut_result.json", None)
 
 
 def generate_script_step() -> None:
     current_run_paths()
+    persist_current_brief()
     script, messages = generate_scripts(st.session_state["inputs"])
     st.session_state["script"] = script
     st.session_state["script_chat_messages"] = messages
+    st.session_state["active_step"] = "广告脚本"
     persist_run_json("script.json", script)
     persist_run_json("script_chat_messages.json", messages)
     reset_downstream("script")
@@ -248,6 +519,7 @@ def generate_storyboard_step() -> None:
         aspect_ratio=st.session_state["inputs"]["video_orientation"],
     )
     st.session_state["storyboard"] = storyboard
+    st.session_state["active_step"] = "视频片段"
     persist_run_json("storyboard.json", storyboard)
     reset_downstream("storyboard")
 
@@ -269,17 +541,19 @@ def submit_all_missing_clips() -> None:
             frame["saved_path"],
             frame.get("scene_description", ""),
             frame.get("visuals", {}),
+            scene_audio=frame.get("audio", {}),
             continuity=frame.get("continuity"),
             last_frame=last_reference_frame,
             until_finish=False,
             aspect_ratio=st.session_state["inputs"]["video_orientation"],
-            duration_seconds=frame.get("duration_seconds", 5),
+            duration_seconds=frame.get("duration_seconds", 8),
             force_local=False,
         )
         current_results[scene_key] = clip_result
         last_reference_frame = frame["saved_path"]
 
     st.session_state["video_result"] = current_results
+    st.session_state["active_step"] = "视频片段"
     persist_run_json("video_result.json", current_results)
     reset_downstream("clips")
 
@@ -303,17 +577,19 @@ def resolve_all_pending_clips() -> None:
                 frame["saved_path"],
                 frame.get("scene_description", ""),
                 frame.get("visuals", {}),
+                scene_audio=frame.get("audio", {}),
                 continuity=frame.get("continuity"),
                 last_frame=current.get("last_frame_path") or last_reference_frame,
                 until_finish=True,
                 aspect_ratio=st.session_state["inputs"]["video_orientation"],
-                duration_seconds=frame.get("duration_seconds", 5),
+                duration_seconds=frame.get("duration_seconds", 8),
                 force_local=False,
             )
-        refreshed["planned_duration_seconds"] = current.get("planned_duration_seconds", frame.get("duration_seconds", 5))
+        refreshed["planned_duration_seconds"] = current.get("planned_duration_seconds", frame.get("duration_seconds", 8))
         current_results[scene_key] = refreshed
         last_reference_frame = refreshed.get("last_frame_path") or last_reference_frame or frame["saved_path"]
     st.session_state["video_result"] = current_results
+    st.session_state["active_step"] = "视频片段"
     persist_run_json("video_result.json", current_results)
 
 
@@ -321,6 +597,7 @@ def generate_metadata_step() -> None:
     current_run_paths()
     ti_intro, _ = generate_ti_intro(st.session_state["script"])
     st.session_state["ti_intro"] = ti_intro
+    st.session_state["active_step"] = "配音字幕"
     persist_run_json("ti_intro.json", ti_intro)
 
 
@@ -336,6 +613,7 @@ def generate_tts_step() -> None:
         "duration_seconds": duration,
         "duration": duration,
     }
+    st.session_state["active_step"] = "配音字幕"
     persist_run_json("tts_result.json", st.session_state["tts_result"])
 
 
@@ -357,27 +635,59 @@ def generate_subtitles_step() -> None:
         "srt_url": srt_url,
         "srt_path": srt_path,
     }
+    st.session_state["active_step"] = "配音字幕"
     persist_run_json("tts_result.json", st.session_state["tts_result"])
+
+
+def ensure_audio_and_subtitles_ready() -> None:
+    if USE_GENERATED_VIDEO_AUDIO:
+        return
+    if not st.session_state.get("script"):
+        raise RuntimeError("请先生成脚本，才能自动补齐配音和字幕。")
+
+    tts_result = _coerce_dict(st.session_state.get("tts_result"))
+    if not (tts_result.get("file_path") or tts_result.get("audio_url")):
+        generate_tts_step()
+        tts_result = _coerce_dict(st.session_state.get("tts_result"))
+
+    if not tts_result.get("srt_path"):
+        generate_subtitles_step()
 
 
 def export_formal_video_step() -> None:
     active_run = current_run_paths()
-    if not all_clips_remote_ready():
-        raise RuntimeError("还有场景不是远端动态片段，正式成片暂时不能导出。")
+    if not all_storyboard_clips_ready():
+        raise RuntimeError("当前还有片段未完成，无法拼接完整视频。")
     output_name = f"wheelchair-{datetime.now().strftime('%m%d-%H%M')}.mp4"
-    scene_duration_map = build_target_scene_duration_map()
-    tts_result = _coerce_dict(st.session_state.get("tts_result"))
-    st.session_state["final_video_result"] = assemble_final_video(
-        ordered_clip_paths(),
-        audio_path=tts_result.get("file_path"),
-        srt_path=tts_result.get("srt_path"),
-        output_dir=active_run.exports,
-        filename=output_name,
-        scene_duration_map=scene_duration_map or None,
-        transition_name=st.session_state.get("inputs", {}).get("transition_name", "fade"),
-        transition_duration=float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.35) or 0.0),
-        aspect_ratio=st.session_state.get("inputs", {}).get("video_orientation", "9:16"),
-    )
+    if USE_GENERATED_VIDEO_AUDIO:
+        st.session_state["final_video_result"] = assemble_final_video(
+            ordered_clip_paths(),
+            audio_path=None,
+            srt_path=None,
+            output_dir=active_run.exports,
+            filename=output_name,
+            scene_duration_map=None,
+            transition_name=None,
+            transition_duration=0.0,
+            aspect_ratio=st.session_state.get("inputs", {}).get("video_orientation", "9:16"),
+            preserve_clip_audio=True,
+        )
+    else:
+        ensure_audio_and_subtitles_ready()
+        scene_duration_map = build_target_scene_duration_map()
+        tts_result = _coerce_dict(st.session_state.get("tts_result"))
+        st.session_state["final_video_result"] = assemble_final_video(
+            ordered_clip_paths(),
+            audio_path=tts_result.get("file_path"),
+            srt_path=tts_result.get("srt_path"),
+            output_dir=active_run.exports,
+            filename=output_name,
+            scene_duration_map=scene_duration_map or None,
+            transition_name=st.session_state.get("inputs", {}).get("transition_name", "fade"),
+            transition_duration=float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.35) or 0.0),
+            aspect_ratio=st.session_state.get("inputs", {}).get("video_orientation", "9:16"),
+        )
+    st.session_state["active_step"] = "导出成片"
     persist_run_json("final_video_result.json", st.session_state["final_video_result"])
 
 
@@ -389,28 +699,51 @@ def run_full_pipeline() -> None:
     submit_all_missing_clips()
     resolve_all_pending_clips()
     generate_metadata_step()
-    generate_tts_step()
-    generate_subtitles_step()
+    if not USE_GENERATED_VIDEO_AUDIO:
+        generate_tts_step()
+        generate_subtitles_step()
     export_formal_video_step()
 
 
 def render_sidebar() -> None:
     with st.sidebar:
+        st.markdown("## 历史记录")
+        st.caption("只显示已经生成过脚本、分镜、片段或成片的 Run；空白简报 Run 不会列出。")
+        recent_runs = list_recoverable_runs()
+        if recent_runs:
+            run_labels = {path.name: _run_label(path) for path in recent_runs}
+            run_names = [path.name for path in recent_runs]
+            if st.session_state.get("restore_run_id") not in run_names:
+                st.session_state["restore_run_id"] = run_names[0]
+            selected_run = st.selectbox(
+                "加载历史 Run",
+                run_names,
+                format_func=lambda value: run_labels.get(value, value),
+                key="restore_run_id",
+            )
+            restore_col, new_col = st.columns(2)
+            if restore_col.button("加载", use_container_width=True):
+                if load_run_state(selected_run):
+                    st.success(f"已加载 Run：{selected_run}")
+                    st.rerun()
+                else:
+                    st.error("这个 Run 没有可恢复的脚本、分镜、片段或成片数据。")
+            if new_col.button("新建", use_container_width=True):
+                create_new_run()
+                st.session_state["inputs"] = copy.deepcopy(DEFAULT_INPUTS)
+                st.session_state["reference_image_paths"] = []
+                st.session_state["active_step"] = "产品简报"
+                reset_generated_state()
+                persist_current_brief()
+                st.rerun()
+        else:
+            st.caption("还没有可恢复的历史 Run。")
+
         run_id = st.session_state.get("run_id")
         if run_id:
             active_run = run_paths(run_id)
             st.caption(f"当前 Run：{run_id}")
             st.caption(f"输出目录：{active_run.root}")
-        st.markdown("## 当前状态")
-        st.metric("脚本场景数", len(scene_list(st.session_state.get("script"))))
-        st.metric("分镜数量", len(st.session_state.get("storyboard", [])))
-        st.metric("已完成片段", ready_clip_count())
-        st.metric("远端动态片段", remote_clip_count())
-        st.metric("本地预览片段", local_preview_clip_count())
-
-        st.markdown("## 当前模型")
-        for label, model_name in MODEL_SUMMARY.items():
-            st.caption(f"{label}: {model_name}")
 
         st.markdown("## 快捷操作")
         if st.button("一键生成正式版", use_container_width=True):
@@ -421,6 +754,17 @@ def render_sidebar() -> None:
                 except Exception as exc:
                     st.error(f"一键流程失败：{exc}")
 
+        st.markdown("## 当前状态")
+        st.metric("脚本场景数", len(scene_list(st.session_state.get("script"))))
+        st.metric("分镜数量", len(ordered_storyboard()))
+        st.metric("已完成片段", ready_clip_count())
+        st.metric("远端动态片段", remote_clip_count())
+        st.metric("本地预览片段", local_preview_clip_count())
+
+        st.markdown("## 当前模型")
+        for label, model_name in MODEL_SUMMARY.items():
+            st.caption(f"{label}: {model_name}")
+
 
 def render_header() -> None:
     st.title("电动轮椅广告工作台")
@@ -428,7 +772,7 @@ def render_header() -> None:
 
     cols = st.columns(5)
     cols[0].metric("脚本场景数", len(scene_list(st.session_state.get("script"))))
-    cols[1].metric("分镜数量", len(st.session_state.get("storyboard", [])))
+    cols[1].metric("分镜数量", len(ordered_storyboard()))
     cols[2].metric("已就绪片段", ready_clip_count())
     cols[3].metric("远端动态片段", remote_clip_count())
     cols[4].metric("本地预览片段", local_preview_clip_count())
@@ -537,6 +881,7 @@ def render_brief_tab() -> None:
             "reference_style": st.session_state.get("reference_style", ""),
         }
         st.session_state["reference_image_paths"] = persist_uploaded_files(upload_files) if upload_files else []
+        st.session_state["active_step"] = "广告脚本"
         reset_generated_state()
         persist_run_json(
             "brief.json",
@@ -574,16 +919,29 @@ def render_script_tab() -> None:
         st.info("请先生成脚本。")
         return
 
-    st.markdown(f"### {script['scenes']['main_theme']}")
+    scenes_root = script.get("scenes", {}) if isinstance(script, dict) else {}
+    main_theme = scenes_root.get("main_theme", "") if isinstance(scenes_root, dict) else ""
+    st.markdown(f"### {main_theme or '广告脚本'}")
     for scene in scenes:
+        visuals = scene.get("visuals", {}) if isinstance(scene.get("visuals", {}), dict) else {}
+        audio = scene.get("audio", {}) if isinstance(scene.get("audio", {}), dict) else {}
+        scene_number = scene.get("scene_number", "")
+        duration_seconds = scene.get("duration_seconds", "")
+        theme = scene.get("theme", "")
+        scene_description = scene.get("scene_description", "")
+        camera_movement = visuals.get("camera_movement", "未提供")
+        lighting = visuals.get("lighting", "未提供")
+        composition = visuals.get("composition_and_set_dressing", "未提供")
+        voice_text = audio.get("text") or audio.get("voice_over") or "未提供"
+        key_message = scene.get("key_message", "")
         with st.container(border=True):
-            st.markdown(f"**场景 {scene['scene_number']} | {scene['duration_seconds']}s | {scene['theme']}**")
-            st.write(scene["scene_description"])
-            st.caption(f"镜头：{scene['visuals']['camera_movement']}")
-            st.caption(f"灯光：{scene['visuals']['lighting']}")
-            st.caption(f"构图：{scene['visuals']['composition_and_set_dressing']}")
-            st.write(f"旁白：{scene['audio']['text']}")
-            st.caption(f"关键信息：{scene['key_message']}")
+            st.markdown(f"**场景 {scene_number} | {duration_seconds}s | {theme}**")
+            st.write(scene_description)
+            st.caption(f"镜头：{camera_movement}")
+            st.caption(f"灯光：{lighting}")
+            st.caption(f"构图：{composition}")
+            st.write(f"旁白：{voice_text}")
+            st.caption(f"关键信息：{key_message}")
 
     with st.expander("脚本 JSON", expanded=False):
         st.json(script)
@@ -603,6 +961,8 @@ def render_script_tab() -> None:
                 updated_script["history"].append(feedback.strip())
                 st.session_state["script"] = updated_script
                 st.session_state["script_chat_messages"] = updated_messages
+                persist_run_json("script.json", updated_script)
+                persist_run_json("script_chat_messages.json", updated_messages)
                 reset_downstream("script")
                 st.success("脚本已更新。")
                 st.rerun()
@@ -652,6 +1012,7 @@ def render_storyboard_tab() -> None:
                                 aspect_ratio=st.session_state["inputs"]["video_orientation"],
                             )
                             frame["saved_path"] = new_path
+                            persist_run_json("storyboard.json", st.session_state["storyboard"])
                             reset_downstream("storyboard")
                             st.success("分镜已更新。")
                             st.rerun()
@@ -762,63 +1123,91 @@ def render_audio_tab() -> None:
 
 
 def render_export_tab() -> None:
-    st.subheader("6. 导出与剪映")
+    st.subheader("6. 导出成片")
     ready_paths = ordered_clip_paths()
     if not ready_paths:
         st.info("请先生成视频片段。")
         return
 
-    if not all_clips_remote_ready():
-        st.warning("当前还不是全远端动态片段，正式成片暂时锁定。请继续刷新远端状态，直到全部场景都显示为远端动态片段。")
+    st.write("这里会直接把前面已经完成的片段按顺序拼接成完整视频。导出时如果发现还没有配音或字幕，会先自动补齐，再一起合成进最终成片。")
+
+    capcut_ready, capcut_message = capcut_service_status()
+    if not all_storyboard_clips_ready():
+        st.warning("当前还有片段未完成。先把所有分镜对应的片段生成出来，才能拼接完整视频。")
     else:
-        if st.button("导出正式成片", use_container_width=True):
-            with st.spinner("正在导出正式成片..."):
+        if local_preview_clip_count():
+            st.info("当前片段里包含本地预览片段，导出后的视频可以用于检查流程，但不是最终远端画质。")
+        if st.button("拼接并导出完整视频", use_container_width=True):
+            with st.spinner("正在补齐配音/字幕并导出正式成片..."):
                 try:
                     export_formal_video_step()
                     st.success("正式成片已导出。")
                 except Exception as exc:
                     st.error(f"正式成片导出失败：{exc}")
 
-    if st.button("上传片段并导入剪映", use_container_width=True):
-        try:
-            uploaded_video_result = upload_all_videos_to_rustfs(st.session_state.get("video_result", {}))
-            draft_id, draft_url = quick_cut_video(uploaded_video_result, _coerce_dict(st.session_state.get("tts_result")), bgm_result=None)
-            st.session_state["capcut_result"] = {"draft_id": draft_id, "draft_url": draft_url}
-            persist_run_json("capcut_result.json", st.session_state["capcut_result"])
-            st.success("已导入剪映。")
-        except Exception as exc:
-            st.error(f"剪映导入失败：{exc}")
-
     final_result = st.session_state.get("final_video_result")
     if isinstance(final_result, dict) and final_result.get("video_path"):
         st.video(final_result["video_path"])
         st.caption(final_result["video_path"])
 
-    capcut_result = st.session_state.get("capcut_result")
-    if isinstance(capcut_result, dict):
-        st.caption(f"剪映草稿 ID：{capcut_result.get('draft_id')}")
-        st.caption(f"剪映草稿地址：{capcut_result.get('draft_url')}")
+    with st.expander("可选：导入剪映草稿", expanded=False):
+        st.caption("这一步不是主流程。只有在你确实需要继续进剪映微调时才用。")
+        if capcut_ready:
+            st.caption(f"剪映桥接服务：{get_capcut_api_url()}")
+        else:
+            st.warning(capcut_message)
+
+        if st.button("上传片段并导入剪映", use_container_width=True, disabled=not capcut_ready):
+            try:
+                uploaded_video_result = upload_all_videos_to_rustfs(st.session_state.get("video_result", {}))
+                draft_id, draft_url = quick_cut_video(uploaded_video_result, _coerce_dict(st.session_state.get("tts_result")), bgm_result=None)
+                st.session_state["capcut_result"] = {"draft_id": draft_id, "draft_url": draft_url}
+                st.session_state["active_step"] = "导出成片"
+                persist_run_json("capcut_result.json", st.session_state["capcut_result"])
+                st.success("已导入剪映。")
+            except Exception as exc:
+                st.error(f"剪映导入失败：{exc}")
+
+        capcut_result = st.session_state.get("capcut_result")
+        if isinstance(capcut_result, dict):
+            st.caption(f"剪映草稿 ID：{capcut_result.get('draft_id')}")
+            st.caption(f"剪映草稿地址：{capcut_result.get('draft_url')}")
 
 
 def main() -> None:
     init_state()
     if st.session_state.get("run_id"):
         current_run_paths()
-    render_sidebar()
     render_header()
-    tabs = st.tabs(["产品简报", "广告脚本", "分镜图", "视频片段", "配音字幕", "导出与剪映"])
-    with tabs[0]:
+    if st.session_state.get("active_step") not in STEP_OPTIONS:
+        st.session_state["active_step"] = infer_active_step()
+    if st.session_state.get("active_step_nav_synced") != st.session_state.get("active_step"):
+        st.session_state["active_step_nav"] = st.session_state.get("active_step")
+        st.session_state["active_step_nav_synced"] = st.session_state.get("active_step")
+    active_step = st.radio(
+        "工作步骤",
+        STEP_OPTIONS,
+        key="active_step_nav",
+        horizontal=True,
+    )
+    if active_step != st.session_state.get("active_step"):
+        st.session_state["active_step"] = active_step
+        st.session_state["active_step_nav_synced"] = active_step
+    st.caption(f"当前进度建议：{infer_active_step()}。加载历史 Run 后会自动跳到对应步骤。")
+
+    if active_step == "产品简报":
         render_brief_tab()
-    with tabs[1]:
+    elif active_step == "广告脚本":
         render_script_tab()
-    with tabs[2]:
+    elif active_step == "分镜图":
         render_storyboard_tab()
-    with tabs[3]:
+    elif active_step == "视频片段":
         render_clips_tab()
-    with tabs[4]:
+    elif active_step == "配音字幕":
         render_audio_tab()
-    with tabs[5]:
+    elif active_step == "导出成片":
         render_export_tab()
+    render_sidebar()
 
 
 if __name__ == "__main__":

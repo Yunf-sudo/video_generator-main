@@ -5,6 +5,7 @@ import os
 import uuid
 import Sign
 import _bootstrap  # noqa: F401
+from google_gemini_api import extract_response_text, generate_content
 from rustfs_util import upload_file_to_rustfs
 from dotenv import load_dotenv
 
@@ -32,9 +33,6 @@ def generate_music_prompt(script: str) -> str:
     Returns:
         str: The generated music prompt.
     """
-    url = os.getenv('JIANYI_ENDPOINT', "http://jeniya.cn/v1/chat/completions")
-    token = os.getenv('JENIYA_API_TOKEN', "")
-    
     prompt = f"""
     Please generate a short background music description prompt based on the following video script.
     The prompt should include key information such as music style, mood, and instruments, suitable as input for AI music generation.
@@ -44,40 +42,15 @@ def generate_music_prompt(script: str) -> str:
     {script}
     """
     
-    payload = json.dumps({
-        "model": "gpt-4o", # Assuming gpt-4o or similar is available as per user example 'gpt-5-mini' but let's stick to standard or what user provided. 
-                           # User provided "gpt-5-mini" in example, but typically we use available models. 
-                           # Let's check if user specified a model in .env or just use a safe default or the one from example.
-                           # The user example used "gpt-5-mini". I will use "gpt-4o" or "gpt-3.5-turbo" as a safe bet if "gpt-5-mini" is not standard, 
-                           # or better, I will use "gpt-4o" as it is commonly used in this context if available, or "gpt-3.5-turbo".
-                           # However, the user explicitly showed ` "model": "gpt-5-mini" ` in their example. I should probably follow that or use a known working model for Jeniya.
-                           # Given Jeniya endpoint usually proxies OpenAI, I'll use "gpt-4o" as a robust default.
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "max_tokens": 1000
-    })
-    
-    headers = {
-        'Accept': 'application/json',
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-    
     try:
-        response = requests.post(url, headers=headers, data=payload)
-        if response.status_code == 200:
-            result = response.json()
-            return result['choices'][0]['message']['content'].strip()
-        else:
-            print(f"LLM request failed with status {response.status_code}: {response.text}")
-            # Fallback prompt
-            return "Relaxing and happy background music"
+        response = generate_content(
+            model=os.getenv("META_MODEL", "gemini-2.5-flash"),
+            messages=[{"role": "user", "content": prompt}],
+            timeout_seconds=120.0,
+        )
+        return extract_response_text(response).strip() or "Relaxing and happy background music"
     except Exception as e:
-        print(f"Error calling LLM: {e}")
+        print(f"Error calling Gemini for music prompt: {e}")
         return "Relaxing and happy background music"
 
 def generate_music(text: str, duration: int = 15) -> str:

@@ -5,6 +5,7 @@ from http import HTTPStatus
 from typing import Any
 import textwrap
 import subprocess
+import unicodedata
 
 import requests
 from dotenv import load_dotenv
@@ -36,6 +37,7 @@ if dashscope is not None:
 CJK_CHAR_RE = re.compile(r"[\u3400-\u9FFF]")
 SILENCE_START_RE = re.compile(r"silence_start:\s*([0-9.]+)")
 SILENCE_END_RE = re.compile(r"silence_end:\s*([0-9.]+)")
+MOJIBAKE_MARKERS = set("ÃÂÅÆÇÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ銆鈥鍥鍙锛锟�")
 
 
 def ms_to_srt_time(ms: int) -> str:
@@ -69,7 +71,7 @@ def _write_srt(content: str, stem: str | None = None) -> str:
 
 
 def _format_subtitle_text(text: str, max_line_length: int = 34) -> str:
-    cleaned = " ".join((text or "").replace("\r", "\n").split())
+    cleaned = _clean_subtitle_text(text)
     if not cleaned:
         return ""
 
@@ -103,7 +105,7 @@ def _format_subtitle_text(text: str, max_line_length: int = 34) -> str:
 
 
 def _split_subtitle_units(text: str) -> list[str]:
-    cleaned = " ".join((text or "").replace("\r", "\n").split())
+    cleaned = _clean_subtitle_text(text)
     if not cleaned:
         return []
     if CJK_CHAR_RE.search(cleaned):
@@ -118,14 +120,7 @@ def _collect_subtitle_units(script: dict) -> list[dict]:
     scenes = _extract_scenes(script)
     units: list[dict] = []
     for scene in scenes:
-        text = (
-            scene.get("audio", {}).get("subtitle_text")
-            or scene.get("audio", {}).get("subtitle")
-            or scene.get("audio", {}).get("text")
-            or scene.get("audio", {}).get("voice_over")
-            or scene.get("key_message")
-            or ""
-        ).strip()
+        text = _scene_subtitle_text(scene)
         for part in _split_subtitle_units(text):
             units.append(
                 {
@@ -134,6 +129,65 @@ def _collect_subtitle_units(script: dict) -> list[dict]:
                 }
             )
     return units
+
+
+def _scene_subtitle_text(scene: dict) -> str:
+    audio = scene.get("audio", {}) if isinstance(scene, dict) else {}
+    scene_voiceover = (
+        scene.get("voiceover")
+        or scene.get("voice_over")
+        or scene.get("voiceover_en")
+        or scene.get("narration")
+        or scene.get("subtitle_text")
+        or scene.get("subtitle")
+        or ""
+    ).strip()
+    preferred = (
+        (audio.get("subtitle_text") or "").strip()
+        or scene_voiceover
+        or (audio.get("voice_over") or "").strip()
+        or (audio.get("text") or "").strip()
+        or (audio.get("subtitle") or "").strip()
+        or (scene.get("key_message") or "").strip()
+    )
+    english_fallback = (
+        (audio.get("text") or "").strip()
+        or (audio.get("voice_over") or "").strip()
+        or scene_voiceover
+        or (scene.get("key_message") or "").strip()
+    )
+    if _looks_like_mojibake(preferred):
+        preferred = english_fallback
+    return _clean_subtitle_text(preferred)
+
+
+def _clean_subtitle_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = normalized.replace("\ufeff", " ").replace("\u200b", " ").replace("\ufffd", " ")
+    return " ".join(normalized.replace("\r", "\n").split())
+
+
+def _looks_like_mojibake(text: str) -> bool:
+    candidate = _clean_subtitle_text(text)
+    if not candidate:
+        return False
+    marker_hits = sum(1 for ch in candidate if ch in MOJIBAKE_MARKERS)
+    return marker_hits >= 3 and marker_hits / max(1, len(candidate)) >= 0.08
+
+
+def _should_force_script_subtitles(script: dict | None) -> bool:
+    if not isinstance(script, dict):
+        return False
+    meta = script.get("meta", {})
+    if not isinstance(meta, dict):
+        meta = {}
+    subtitle_mode = str(meta.get("subtitle_mode", "") or "").strip().lower()
+    if subtitle_mode in {"english_only", "script", "script_only"}:
+        return True
+    if bool(meta.get("force_english_subtitles", False)):
+        return True
+    language = str(meta.get("language", "") or "").strip().lower()
+    return language in {"english", "en", "en-us", "en_us"}
 
 
 def _merge_subtitle_units_to_target(units: list[dict], target_count: int) -> list[dict]:
@@ -308,15 +362,7 @@ def generate_srt_from_script(
     cursor = 0.0
 
     for idx, scene in enumerate(scenes, start=1):
-        text = (
-            scene.get("audio", {}).get("subtitle_text")
-            or scene.get("audio", {}).get("subtitle")
-            or
-            scene.get("audio", {}).get("text")
-            or scene.get("audio", {}).get("voice_over")
-            or scene.get("key_message")
-            or ""
-        ).strip()
+        text = _scene_subtitle_text(scene)
         if not text:
             continue
 
@@ -385,6 +431,13 @@ def generate_srt_asset_from_audio(
     scene_duration_map: dict[int, float] | None = None,
     audio_path: str | None = None,
 ) -> tuple[str, str]:
+    if _should_force_script_subtitles(script):
+        return generate_srt_from_script(
+            script or {},
+            duration_seconds=duration_seconds,
+            scene_duration_map=scene_duration_map,
+            audio_path=audio_path,
+        )
     try:
         return _maybe_remote_asr(audio_url)
     except Exception as remote_err:

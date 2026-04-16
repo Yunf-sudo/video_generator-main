@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import os
 import subprocess
@@ -5,7 +7,6 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
 from media_pipeline import find_binary, probe_audio_duration, safe_file_uri
 from rustfs_util import upload_file_to_rustfs
@@ -14,12 +15,6 @@ from workspace_paths import ensure_active_run
 
 load_dotenv()
 
-client = OpenAI(
-    base_url="http://jeniya.cn/v1",
-    api_key=os.getenv("JENIYA_API_TOKEN"),
-)
-
-DEFAULT_TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
 DEFAULT_TTS_BUCKET = os.getenv("RUSTFS_BUCKET_NAME_AUDIO") or "audio-clips"
 
 
@@ -35,9 +30,19 @@ def _extract_scenes(script: dict) -> list[dict]:
 def collect_voiceover_lines(script: dict) -> list[str]:
     lines: list[str] = []
     for scene in _extract_scenes(script):
+        scene_voiceover = (
+            scene.get("voiceover")
+            or scene.get("voice_over")
+            or scene.get("voiceover_en")
+            or scene.get("narration")
+            or ""
+        ).strip()
         text = (
-            scene.get("audio", {}).get("text")
+            scene.get("audio", {}).get("subtitle_text")
+            or scene_voiceover
             or scene.get("audio", {}).get("voice_over")
+            or scene.get("audio", {}).get("text")
+            or scene.get("audio", {}).get("subtitle")
             or scene.get("key_message")
             or ""
         ).strip()
@@ -48,6 +53,13 @@ def collect_voiceover_lines(script: dict) -> list[str]:
 
 def build_voiceover_text(script: dict) -> str:
     return " ".join(collect_voiceover_lines(script)).strip()
+
+
+def _ensure_voiceover_text(script: dict) -> str:
+    text = build_voiceover_text(script)
+    if not text:
+        raise ValueError("Script does not contain any usable voiceover text for TTS.")
+    return text
 
 
 def _estimate_duration_seconds(text: str) -> float:
@@ -122,7 +134,6 @@ def _generate_local_tts(text: str, output_dir: str, filename: str) -> tuple[str,
             return _generate_local_tts_windows(text, output_dir, filename)
         except Exception as exc:
             last_error = exc
-
     try:
         return _generate_silent_audio(text, output_dir, filename)
     except Exception:
@@ -136,38 +147,18 @@ def generate_and_upload_tts(
     output_dir: str | None = None,
     bucket_name: str = DEFAULT_TTS_BUCKET,
     voice: str = "alloy",
-    model: str = DEFAULT_TTS_MODEL,
+    model: str = "",
     allow_local_fallback: bool = True,
 ) -> tuple[str, str, float]:
+    del voice, model
     output_dir = output_dir or str(ensure_active_run().audio)
     os.makedirs(output_dir, exist_ok=True)
     filename = f"tts_{uuid.uuid4()}.mp3"
-    file_path = os.path.join(output_dir, filename)
-
-    try:
-        response = client.audio.speech.create(
-            model=model,
-            voice=voice,
-            input=text,
-            timeout=300,
-        )
-        response.stream_to_file(file_path)
-
-        duration_seconds = probe_audio_duration(file_path)
-        url = upload_file_to_rustfs(file_path, bucket_name or DEFAULT_TTS_BUCKET, object_name=filename)
-        if url:
-            return url, file_path, duration_seconds
-        return safe_file_uri(file_path), file_path, duration_seconds
-    except Exception as exc:
-        print(f"Error generating or uploading TTS: {exc}")
-        if not allow_local_fallback:
-            return "", "", 0.0
-        try:
-            return _generate_local_tts(text, output_dir, filename)
-        except Exception as fallback_exc:
-            print(f"Local TTS fallback failed: {fallback_exc}")
-            return "", "", 0.0
+    if not allow_local_fallback:
+        return "", "", 0.0
+    return _generate_local_tts(text, output_dir, filename)
 
 
 def generate_tts_audio(script: dict, voice: str = "alloy"):
-    return generate_and_upload_tts(build_voiceover_text(script), voice=voice)
+    del voice
+    return generate_and_upload_tts(_ensure_voiceover_text(script))

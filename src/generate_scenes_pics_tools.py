@@ -55,19 +55,19 @@ def generate_storyboard(
         continuity = {
             "same_rider_default": continuity_rider_anchor,
             "previous_scene": {
-                "scene_number": previous_scene["scene_number"],
-                "theme": previous_scene["theme"],
-                "key_message": previous_scene["key_message"],
-                "scene_description": previous_scene["scene_description"],
+                "scene_number": previous_scene.get("scene_number", index),
+                "theme": previous_scene.get("theme", ""),
+                "key_message": previous_scene.get("key_message", ""),
+                "scene_description": previous_scene.get("scene_description", ""),
                 "visuals": previous_scene.get("visuals", {}),
             }
             if previous_scene
             else None,
             "next_scene": {
-                "scene_number": next_scene["scene_number"],
-                "theme": next_scene["theme"],
-                "key_message": next_scene["key_message"],
-                "scene_description": next_scene["scene_description"],
+                "scene_number": next_scene.get("scene_number", index + 2),
+                "theme": next_scene.get("theme", ""),
+                "key_message": next_scene.get("key_message", ""),
+                "scene_description": next_scene.get("scene_description", ""),
                 "visuals": next_scene.get("visuals", {}),
             }
             if next_scene
@@ -82,15 +82,16 @@ def generate_storyboard(
             "main_theme": main_theme,
             "aspect_ratio": aspect_ratio,
             "continuity": continuity,
-            "scene_to_generate": {
-                "scene_number": scene["scene_number"],
-                "theme": scene["theme"],
-                "duration_seconds": scene["duration_seconds"],
-                "scene_description": scene["scene_description"],
-                "visuals": scene["visuals"],
-                "key_message": scene["key_message"],
-            },
-        }
+                "scene_to_generate": {
+                    "scene_number": scene.get("scene_number", index + 1),
+                    "theme": scene.get("theme", ""),
+                    "duration_seconds": scene.get("duration_seconds", 8),
+                    "scene_description": scene.get("scene_description", ""),
+                    "visuals": scene.get("visuals", {}),
+                    "audio": scene.get("audio", {}),
+                    "key_message": scene.get("key_message", ""),
+                },
+            }
         filled_prompt = apply_override(
             generate_scene_pic_user_prompt.format(
                 structured_input=json.dumps(model_input, ensure_ascii=False, indent=2)
@@ -121,19 +122,20 @@ def generate_storyboard(
             image_generation_mode = "placeholder"
             image_generation_error = str(exc)
             generated_pic_path = create_storyboard_placeholder(
-                scene_number=int(scene["scene_number"]),
-                scene_description=scene["scene_description"],
-                key_message=scene["key_message"],
+                scene_number=int(scene.get("scene_number", index + 1)),
+                scene_description=scene.get("scene_description", ""),
+                key_message=scene.get("key_message", ""),
                 aspect_ratio=aspect_ratio,
             )
         ret.append(
             {
-                "scene_number": scene["scene_number"],
-                "duration_seconds": scene["duration_seconds"],
+                "scene_number": scene.get("scene_number", index + 1),
+                "duration_seconds": scene.get("duration_seconds", 8),
                 "saved_path": generated_pic_path,
-                "scene_description": scene["scene_description"],
-                "visuals": scene["visuals"],
-                "key_message": scene["key_message"],
+                "scene_description": scene.get("scene_description", ""),
+                "visuals": scene.get("visuals", {}),
+                "audio": scene.get("audio", {}),
+                "key_message": scene.get("key_message", ""),
                 "continuity": continuity,
                 "image_prompt": filled_prompt,
                 "image_system_prompt": system_prompt,

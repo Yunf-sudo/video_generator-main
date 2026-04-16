@@ -1,13 +1,14 @@
-from prompts_en import ti_intro_generator_prompt, ti_intro_generator_prompt_with_ref
+from __future__ import annotations
 
 import json
 import os
 import uuid
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
+from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
 from prompt_context import build_prompt_context
+from prompts_en import ti_intro_generator_prompt, ti_intro_generator_prompt_with_ref
 from youtube_fetch.youtube_fetcher import fetch_channel_info
 from workspace_paths import ensure_active_run
 
@@ -19,12 +20,20 @@ except ImportError:  # pragma: no cover - optional dependency
 
 load_dotenv()
 
-client = OpenAI(
-  base_url="http://jeniya.cn/v1",
-  api_key=os.getenv("JENIYA_API_TOKEN"),
-)
+DEFAULT_META_MODEL = os.getenv("META_MODEL", DEFAULT_TEXT_MODEL)
 
-DEFAULT_META_MODEL = os.getenv("META_MODEL", "gpt-5.2-all")
+TI_INTRO_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["title", "description", "tags"],
+}
 
 
 def _load_json(content: str) -> dict:
@@ -43,9 +52,27 @@ def _fallback_intro(video_info: dict) -> tuple[dict, list[dict]]:
     title = f"{prompt_context['marketing_product_name']} | {main_theme}".strip()
     lead = next(
         (
-            (scene.get("audio", {}).get("text") or scene.get("key_message") or "").strip()
+            (
+                scene.get("voiceover")
+                or scene.get("voice_over")
+                or scene.get("voiceover_en")
+                or scene.get("audio", {}).get("subtitle_text")
+                or scene.get("audio", {}).get("voice_over")
+                or scene.get("audio", {}).get("text")
+                or scene.get("key_message")
+                or ""
+            ).strip()
             for scene in scenes
-            if (scene.get("audio", {}).get("text") or scene.get("key_message") or "").strip()
+            if (
+                scene.get("voiceover")
+                or scene.get("voice_over")
+                or scene.get("voiceover_en")
+                or scene.get("audio", {}).get("subtitle_text")
+                or scene.get("audio", {}).get("voice_over")
+                or scene.get("audio", {}).get("text")
+                or scene.get("key_message")
+                or ""
+            ).strip()
         ),
         "",
     )
@@ -67,13 +94,25 @@ def _fallback_intro(video_info: dict) -> tuple[dict, list[dict]]:
     }, []
 
 
+def _complete_intro(messages: list[dict]) -> tuple[dict, list[dict]]:
+    response = generate_content(
+        model=DEFAULT_META_MODEL,
+        messages=messages,
+        response_mime_type="application/json",
+        response_json_schema=TI_INTRO_SCHEMA,
+        timeout_seconds=180.0,
+    )
+    content = extract_response_text(response)
+    messages = [*messages, {"role": "assistant", "content": content}]
+    return _load_json(content), messages
+
+
 def generate_ti_intro_with_ref(video_info: dict, ref_channel_identity: str):
     channel_info_file = fetch_channel_info(ref_channel_identity, str(ensure_active_run().youtube_data))
     with open(channel_info_file, "r", encoding="utf-8") as f:
         channel_info = json.load(f)
 
     all_tags = set()
-
     for video in channel_info["videos"]:
         tags = video.get("snippet", {}).get("tags", [])
         all_tags.update(tags)
@@ -84,81 +123,43 @@ def generate_ti_intro_with_ref(video_info: dict, ref_channel_identity: str):
     messages = [
         {
             "role": "system",
-            "content": ti_intro_generator_prompt_with_ref.format(reference_tags=str(all_tags), **prompt_context)
+            "content": ti_intro_generator_prompt_with_ref.format(reference_tags=str(all_tags), **prompt_context),
         },
         {
             "role": "user",
-            "content": f"Script is below: \n{json.dumps(video_info, ensure_ascii=False, indent=2)}"
-        }
+            "content": f"Script is below:\n{json.dumps(video_info, ensure_ascii=False, indent=2)}",
+        },
     ]
     try:
-        completion = client.chat.completions.create(
-            model=DEFAULT_META_MODEL,
-            messages=messages
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": completion.choices[0].message.content
-            }
-        )
-        json_ret = _load_json(completion.choices[0].message.content)
-        return json_ret, messages
+        return _complete_intro(messages)
     except Exception:
         fallback, fallback_messages = _fallback_intro(video_info)
         return fallback, messages + fallback_messages
 
 
-def generate_ti_intro(video_info: dict) -> str:
+def generate_ti_intro(video_info: dict):
     prompt_context = build_prompt_context(video_info.get("meta", {}))
     messages = [
         {
             "role": "system",
-            "content": ti_intro_generator_prompt.format(**prompt_context)
+            "content": ti_intro_generator_prompt.format(**prompt_context),
         },
         {
             "role": "user",
-            "content": f"Script is below:\n{json.dumps(video_info, ensure_ascii=False, indent=2)}"
-        }
+            "content": f"Script is below:\n{json.dumps(video_info, ensure_ascii=False, indent=2)}",
+        },
     ]
     try:
-        completion = client.chat.completions.create(
-            model=DEFAULT_META_MODEL,
-            messages=messages
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": completion.choices[0].message.content
-            }
-        )
-        json_ret = _load_json(completion.choices[0].message.content)
-        return json_ret, messages
+        return _complete_intro(messages)
     except Exception:
         fallback, fallback_messages = _fallback_intro(video_info)
         return fallback, messages + fallback_messages
 
 
-def repair_ti_intro(messages: list[dict], feedback: str) -> str:
-    messages.append(
-        {
-            "role": "user",
-            "content": feedback
-        }
-    )
+def repair_ti_intro(messages: list[dict], feedback: str):
+    messages = [*messages, {"role": "user", "content": feedback}]
     try:
-        completion = client.chat.completions.create(
-            model=DEFAULT_META_MODEL,
-            messages=messages
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": completion.choices[0].message.content
-            }
-        )
-        json_ret = _load_json(completion.choices[0].message.content)
-        return json_ret, messages
+        return _complete_intro(messages)
     except Exception:
         fallback = {
             "title": f"Draft {uuid.uuid4().hex[:6]}",

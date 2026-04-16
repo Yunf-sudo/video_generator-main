@@ -6,8 +6,6 @@ import os
 import time
 from pathlib import Path
 
-os.environ.setdefault("JIANYI_ENDPOINT", "http://jeniya.cn/v1/chat/completions")
-
 from asr import generate_srt_asset_from_audio
 from generate_image_from_prompt import generate_image_from_prompt
 from generate_tts_audio import generate_tts_audio

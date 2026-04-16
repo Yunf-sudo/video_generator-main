@@ -69,6 +69,7 @@ def load_creative_guardrails(prompt_path: str | Path = DEFAULT_PROMPT_PATH) -> s
 
 def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], creative_guardrails: str) -> dict[str, Any]:
     scenes = []
+    default_scene_duration = int(concept.get("scene_duration_seconds", campaign.get("scene_duration_seconds", 8)) or 8)
     for shot in concept.get("shots", []):
         subtitle_text = shot.get("voiceover_en", "").strip()
         subtitle_zh = shot.get("subtitle_zh", "").strip()
@@ -77,7 +78,7 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
             {
                 "scene_number": int(shot["scene_number"]),
                 "theme": shot["theme"],
-                "duration_seconds": int(shot["duration_seconds"]),
+                "duration_seconds": default_scene_duration,
                 "scene_description": shot["scene_description"],
                 "visuals": {
                     "camera_movement": shot["camera_movement"],
@@ -100,6 +101,16 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
     use_product_reference_images = bool(campaign.get("use_product_reference_images", False))
     explicit_signature = (campaign.get("product_reference_signature") or "").strip()
     explicit_structure = campaign.get("product_visual_structure")
+    subtitle_mode = str(
+        concept.get(
+            "subtitle_mode",
+            campaign.get(
+                "subtitle_mode",
+                "english_only" if str(campaign.get("language", "")).strip().lower() == "english" else "",
+            ),
+        )
+        or ""
+    ).strip()
     meta = {
         "brand_name": campaign.get("brand_name", "AnyWell"),
         "product_brand_name": campaign.get("brand_name", "AnyWell"),
@@ -126,6 +137,16 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
             if item
         ),
         "language": campaign.get("language", "English"),
+        "subtitle_mode": subtitle_mode,
+        "force_english_subtitles": bool(
+            concept.get(
+                "force_english_subtitles",
+                campaign.get(
+                    "force_english_subtitles",
+                    subtitle_mode.lower() == "english_only",
+                ),
+            )
+        ),
         "video_orientation": campaign.get("video_orientation", "9:16"),
         "desired_scene_count": len(scenes),
         "preferred_runtime_seconds": sum(int(scene["duration_seconds"]) for scene in scenes),
@@ -150,6 +171,18 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
             concept.get("transition_duration_seconds", campaign.get("transition_duration_seconds", 0.0)) or 0.0
         ),
         "tts_voice": concept.get("voice", campaign.get("voice", "alloy")),
+        "use_generated_video_audio": bool(
+            concept.get(
+                "use_generated_video_audio",
+                campaign.get("use_generated_video_audio", True),
+            )
+        ),
+        "preserve_generated_clip_durations": bool(
+            concept.get(
+                "preserve_generated_clip_durations",
+                campaign.get("preserve_generated_clip_durations", True),
+            )
+        ),
         "video_reference_strategy": concept.get(
             "video_reference_strategy",
             campaign.get("video_reference_strategy", "full"),
@@ -190,7 +223,7 @@ def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], crea
         "skip_storyboard_crop_for_video": bool(
             concept.get(
                 "skip_storyboard_crop_for_video",
-                campaign.get("skip_storyboard_crop_for_video", False),
+                campaign.get("skip_storyboard_crop_for_video", True),
             )
         ),
     }
@@ -416,8 +449,9 @@ def _run_single_concept(
         video_prompts[scene_key] = build_video_prompt(
             scene_info=frame.get("scene_description", ""),
             visuals=frame.get("visuals", {}),
+            scene_audio=frame.get("audio", {}),
             aspect_ratio=script["meta"]["video_orientation"],
-            duration_seconds=int(frame.get("duration_seconds", 5)),
+            duration_seconds=int(frame.get("duration_seconds", 8)),
             continuity=frame.get("continuity"),
             meta=script["meta"],
             hero_product_name=script["meta"].get("hero_product_name"),
@@ -430,6 +464,8 @@ def _run_single_concept(
     last_frame = None
     force_local_video = script["meta"].get("video_generation_mode", "local") != "remote"
     require_remote_video = bool(script["meta"].get("require_remote_video", False))
+    use_generated_video_audio = bool(script["meta"].get("use_generated_video_audio", True))
+    preserve_generated_clip_durations = bool(script["meta"].get("preserve_generated_clip_durations", True))
     video_reference_strategy = str(script["meta"].get("video_reference_strategy", "full") or "full").strip().lower()
     strict_reference_only = bool(script["meta"].get("video_strict_reference_only", False))
     include_product_reference_images = bool(script["meta"].get("use_product_reference_images", False))
@@ -462,11 +498,12 @@ def _run_single_concept(
                 frame["saved_path"],
                 frame.get("scene_description", ""),
                 frame.get("visuals", {}),
+                scene_audio=frame.get("audio", {}),
                 continuity=frame.get("continuity"),
                 last_frame=last_frame if use_last_frame_reference else None,
                 until_finish=True,
                 aspect_ratio=script["meta"]["video_orientation"],
-                duration_seconds=int(frame.get("duration_seconds", 5)),
+                duration_seconds=int(frame.get("duration_seconds", 8)),
                 force_local=force_local_video,
                 strict_reference_only=strict_reference_only,
                 include_product_reference_images=include_product_reference_images,
@@ -488,7 +525,7 @@ def _run_single_concept(
                 time.sleep(min(20, 5 * attempt))
         if require_remote_video and (result is None or result.get("generation_mode") != "remote"):
             raise RuntimeError(last_scene_error or f"Scene {scene_key} failed to produce a remote clip.")
-        result["planned_duration_seconds"] = int(frame.get("duration_seconds", 5))
+        result["planned_duration_seconds"] = int(frame.get("duration_seconds", 8))
         resolved[scene_key] = result
         last_frame = result.get("last_frame_path") or frame["saved_path"]
         write_run_json("video_result_partial.json", resolved)
@@ -497,27 +534,40 @@ def _run_single_concept(
     _write_json(concept_dir / "video_result.json", resolved)
     _copy_clip_assets(resolved, clips_dir)
 
-    audio_url, audio_path, audio_duration = generate_tts_audio(script, voice=script["meta"].get("tts_voice", "alloy"))
-    if not audio_path:
-        raise RuntimeError("TTS generation failed and no local fallback audio was produced.")
-    copied_audio_path = _safe_copy(audio_path, concept_dir / f"voiceover{Path(audio_path).suffix}")
-
-    scene_duration_map = build_scene_audio_duration_map(
-        script,
-        duration_seconds=audio_duration,
-        scene_duration_map={
+    if use_generated_video_audio:
+        audio_url = ""
+        audio_path = ""
+        audio_duration = 0.0
+        copied_audio_path = ""
+        srt_url = ""
+        srt_path = ""
+        copied_srt_path = ""
+        scene_duration_map = None if preserve_generated_clip_durations else {
             int(key): float(value.get("duration_seconds") or value.get("planned_duration_seconds") or 0)
             for key, value in resolved.items()
-        },
-    )
-    srt_url, srt_path = generate_srt_asset_from_audio(
-        audio_url,
-        script=script,
-        duration_seconds=audio_duration,
-        scene_duration_map=scene_duration_map,
-        audio_path=audio_path,
-    )
-    copied_srt_path = _safe_copy(srt_path, concept_dir / "subtitles.srt")
+        }
+    else:
+        audio_url, audio_path, audio_duration = generate_tts_audio(script, voice=script["meta"].get("tts_voice", "alloy"))
+        if not audio_path:
+            raise RuntimeError("TTS generation failed and no local fallback audio was produced.")
+        copied_audio_path = _safe_copy(audio_path, concept_dir / f"voiceover{Path(audio_path).suffix}")
+
+        scene_duration_map = build_scene_audio_duration_map(
+            script,
+            duration_seconds=audio_duration,
+            scene_duration_map={
+                int(key): float(value.get("duration_seconds") or value.get("planned_duration_seconds") or 0)
+                for key, value in resolved.items()
+            },
+        )
+        srt_url, srt_path = generate_srt_asset_from_audio(
+            audio_url,
+            script=script,
+            duration_seconds=audio_duration,
+            scene_duration_map=scene_duration_map,
+            audio_path=audio_path,
+        )
+        copied_srt_path = _safe_copy(srt_path, concept_dir / "subtitles.srt")
 
     final_video = assemble_final_video(
         [resolved[key]["video_path"] for key in sorted(resolved.keys(), key=int) if resolved[key].get("video_path")],
@@ -525,9 +575,10 @@ def _run_single_concept(
         srt_path=srt_path,
         scene_duration_map=scene_duration_map,
         filename=f"{concept['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4",
-        transition_name=script["meta"].get("transition_name") or None,
-        transition_duration=float(script["meta"].get("transition_duration_seconds") or 0.0),
+        transition_name=None if use_generated_video_audio else (script["meta"].get("transition_name") or None),
+        transition_duration=0.0 if use_generated_video_audio else float(script["meta"].get("transition_duration_seconds") or 0.0),
         aspect_ratio=script["meta"].get("video_orientation", "9:16"),
+        preserve_clip_audio=use_generated_video_audio,
     )
     copied_final_video = _safe_copy(final_video.get("video_path"), concept_dir / "final_video.mp4")
 
@@ -551,9 +602,11 @@ def _run_single_concept(
         "subtitle_url": srt_url,
         "subtitle_path": copied_srt_path,
         "final_video_path": copied_final_video,
-        "scene_duration_map": scene_duration_map,
+        "scene_duration_map": scene_duration_map or {},
         "transition_name": script["meta"].get("transition_name", ""),
         "transition_duration_seconds": float(script["meta"].get("transition_duration_seconds") or 0.0),
+        "use_generated_video_audio": use_generated_video_audio,
+        "preserve_generated_clip_durations": preserve_generated_clip_durations,
         "product_reference_images": product_reference_paths,
         "used_product_reference_images": bool(script["meta"].get("use_product_reference_images")),
         "video_reference_strategy": video_reference_strategy,
