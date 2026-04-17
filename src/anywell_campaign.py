@@ -67,6 +67,48 @@ def load_creative_guardrails(prompt_path: str | Path = DEFAULT_PROMPT_PATH) -> s
     return path.read_text(encoding="utf-8").strip()
 
 
+def _delivery_video_only(campaign: dict[str, Any], concept: dict[str, Any] | None = None) -> bool:
+    concept = concept or {}
+    return bool(concept.get("delivery_video_only", campaign.get("delivery_video_only", False)))
+
+
+def _timestamp_video_name() -> str:
+    return f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+
+
+def _unique_file_path(directory: Path, filename: str) -> Path:
+    candidate = directory / filename
+    stem = candidate.stem
+    suffix = candidate.suffix or ".mp4"
+    index = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}_{index:02d}{suffix}"
+        index += 1
+    return candidate
+
+
+def _final_delivery_video_path(output_root: Path, campaign: dict[str, Any], concept: dict[str, Any]) -> Path:
+    explicit_name = str(concept.get("final_video_filename", campaign.get("final_video_filename", "")) or "").strip()
+    if explicit_name:
+        filename = explicit_name if explicit_name.lower().endswith(".mp4") else f"{explicit_name}.mp4"
+    else:
+        mode = str(
+            concept.get(
+                "final_video_filename_mode",
+                campaign.get(
+                    "final_video_filename_mode",
+                    "timestamp" if _delivery_video_only(campaign, concept) else "concept_timestamp",
+                ),
+            )
+            or ""
+        ).strip().lower()
+        if mode == "timestamp":
+            filename = _timestamp_video_name()
+        else:
+            filename = f"{concept['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    return _unique_file_path(output_root, filename)
+
+
 def build_anywell_script(campaign: dict[str, Any], concept: dict[str, Any], creative_guardrails: str) -> dict[str, Any]:
     scenes = []
     default_scene_duration = int(concept.get("scene_duration_seconds", campaign.get("scene_duration_seconds", 8)) or 8)
@@ -407,9 +449,10 @@ def _run_single_concept(
     logger: logging.Logger,
 ) -> dict[str, Any]:
     run_paths: RunPaths = start_new_run(prefix=f"anywell-{concept['id']}")
-    concept_dir = _ensure_dir(output_root / concept["id"])
-    storyboard_dir = _ensure_dir(concept_dir / "storyboard")
-    clips_dir = _ensure_dir(concept_dir / "clips")
+    video_only_delivery = _delivery_video_only(campaign, concept)
+    concept_dir = _ensure_dir(output_root if video_only_delivery else output_root / concept["id"])
+    storyboard_dir = _ensure_dir(concept_dir / "storyboard") if not video_only_delivery else None
+    clips_dir = _ensure_dir(concept_dir / "clips") if not video_only_delivery else None
 
     script = build_anywell_script(campaign, concept, creative_guardrails)
     product_reference_paths = get_product_reference_images(limit=int(campaign.get("product_reference_image_limit", 5) or 5))
@@ -420,18 +463,20 @@ def _run_single_concept(
             script["meta"]["product_visual_structure"] = get_product_visual_structure()
     write_run_json("brief.json", {"campaign": campaign, "concept": concept})
     write_run_json("script.json", script)
-    _write_json(concept_dir / "script.json", script)
-    _write_json(concept_dir / "product_reference_images.json", product_reference_paths)
-    if script["meta"].get("product_visual_structure"):
-        _write_json(concept_dir / "product_visual_structure.json", script["meta"]["product_visual_structure"])
-    if script["meta"].get("product_reference_signature"):
-        _write_text(concept_dir / "product_reference_signature.txt", str(script["meta"]["product_reference_signature"]).strip() + "\n")
+    if not video_only_delivery:
+        _write_json(concept_dir / "script.json", script)
+        _write_json(concept_dir / "product_reference_images.json", product_reference_paths)
+        if script["meta"].get("product_visual_structure"):
+            _write_json(concept_dir / "product_visual_structure.json", script["meta"]["product_visual_structure"])
+        if script["meta"].get("product_reference_signature"):
+            _write_text(concept_dir / "product_reference_signature.txt", str(script["meta"]["product_reference_signature"]).strip() + "\n")
 
     ti_intro, ti_messages = generate_ti_intro(script)
     write_run_json("ti_intro.json", ti_intro)
-    _write_json(concept_dir / "ti_intro.json", ti_intro)
-    if ti_messages:
-        _write_json(concept_dir / "ti_intro_messages.json", ti_messages)
+    if not video_only_delivery:
+        _write_json(concept_dir / "ti_intro.json", ti_intro)
+        if ti_messages:
+            _write_json(concept_dir / "ti_intro_messages.json", ti_messages)
 
     reuse_storyboard_json = str(script["meta"].get("reuse_storyboard_json", "") or "").strip()
     if reuse_storyboard_json:
@@ -440,8 +485,9 @@ def _run_single_concept(
     else:
         storyboard = generate_storyboard(script, aspect_ratio=script["meta"]["video_orientation"])
     write_run_json("storyboard.json", storyboard)
-    _write_json(concept_dir / "storyboard.json", storyboard)
-    _copy_storyboard_assets(storyboard, storyboard_dir)
+    if not video_only_delivery:
+        _write_json(concept_dir / "storyboard.json", storyboard)
+        _copy_storyboard_assets(storyboard, storyboard_dir)
 
     video_prompts: dict[str, str] = {}
     for frame in storyboard:
@@ -458,7 +504,8 @@ def _run_single_concept(
             product_reference_signature=script["meta"].get("product_reference_signature"),
             product_visual_structure=script["meta"].get("product_visual_structure"),
         )
-    _write_text(concept_dir / "prompts.txt", _prompts_text(storyboard, video_prompts))
+    if not video_only_delivery:
+        _write_text(concept_dir / "prompts.txt", _prompts_text(storyboard, video_prompts))
 
     resolved: dict[str, dict[str, Any]] = {}
     last_frame = None
@@ -479,7 +526,8 @@ def _run_single_concept(
             last_scene_key = sorted(resolved.keys(), key=int)[-1]
             last_frame = resolved[last_scene_key].get("last_frame_path") or resolved[last_scene_key].get("video_path")
             write_run_json("video_result_partial.json", resolved)
-            _write_json(concept_dir / "video_result_partial.json", resolved)
+            if not video_only_delivery:
+                _write_json(concept_dir / "video_result_partial.json", resolved)
     if video_reference_strategy == "storyboard_only":
         include_product_reference_images = False
         strict_reference_only = True
@@ -529,10 +577,12 @@ def _run_single_concept(
         resolved[scene_key] = result
         last_frame = result.get("last_frame_path") or frame["saved_path"]
         write_run_json("video_result_partial.json", resolved)
-        _write_json(concept_dir / "video_result_partial.json", resolved)
+        if not video_only_delivery:
+            _write_json(concept_dir / "video_result_partial.json", resolved)
     write_run_json("video_result.json", resolved)
-    _write_json(concept_dir / "video_result.json", resolved)
-    _copy_clip_assets(resolved, clips_dir)
+    if not video_only_delivery:
+        _write_json(concept_dir / "video_result.json", resolved)
+        _copy_clip_assets(resolved, clips_dir)
 
     if use_generated_video_audio:
         audio_url = ""
@@ -550,7 +600,7 @@ def _run_single_concept(
         audio_url, audio_path, audio_duration = generate_tts_audio(script, voice=script["meta"].get("tts_voice", "alloy"))
         if not audio_path:
             raise RuntimeError("TTS generation failed and no local fallback audio was produced.")
-        copied_audio_path = _safe_copy(audio_path, concept_dir / f"voiceover{Path(audio_path).suffix}")
+        copied_audio_path = "" if video_only_delivery else _safe_copy(audio_path, concept_dir / f"voiceover{Path(audio_path).suffix}")
 
         scene_duration_map = build_scene_audio_duration_map(
             script,
@@ -567,25 +617,32 @@ def _run_single_concept(
             scene_duration_map=scene_duration_map,
             audio_path=audio_path,
         )
-        copied_srt_path = _safe_copy(srt_path, concept_dir / "subtitles.srt")
+        copied_srt_path = "" if video_only_delivery else _safe_copy(srt_path, concept_dir / "subtitles.srt")
 
+    assembly_output_dir = run_paths.exports if video_only_delivery else concept_dir
+    assembled_filename = _final_delivery_video_path(output_root, campaign, concept).name if video_only_delivery else f"{concept['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     final_video = assemble_final_video(
         [resolved[key]["video_path"] for key in sorted(resolved.keys(), key=int) if resolved[key].get("video_path")],
         audio_path=audio_path,
         srt_path=srt_path,
         scene_duration_map=scene_duration_map,
-        filename=f"{concept['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4",
+        filename=assembled_filename,
+        output_dir=assembly_output_dir,
         transition_name=None if use_generated_video_audio else (script["meta"].get("transition_name") or None),
         transition_duration=0.0 if use_generated_video_audio else float(script["meta"].get("transition_duration_seconds") or 0.0),
         aspect_ratio=script["meta"].get("video_orientation", "9:16"),
         preserve_clip_audio=use_generated_video_audio,
     )
-    copied_final_video = _safe_copy(final_video.get("video_path"), concept_dir / "final_video.mp4")
+    copied_final_video = _safe_copy(
+        final_video.get("video_path"),
+        _final_delivery_video_path(output_root, campaign, concept) if video_only_delivery else concept_dir / "final_video.mp4",
+    )
 
-    _write_text(concept_dir / "script.txt", _script_markdown(campaign, concept, script, ti_intro))
-    _write_text(concept_dir / "voiceover.txt", build_voiceover_text(script) + "\n")
-    _write_text(concept_dir / "cover_copy.txt", _cover_copy_text(concept, ti_intro))
-    _write_text(concept_dir / "cta.txt", (concept.get("cta", "").strip() + "\n"))
+    if not video_only_delivery:
+        _write_text(concept_dir / "script.txt", _script_markdown(campaign, concept, script, ti_intro))
+        _write_text(concept_dir / "voiceover.txt", build_voiceover_text(script) + "\n")
+        _write_text(concept_dir / "cover_copy.txt", _cover_copy_text(concept, ti_intro))
+        _write_text(concept_dir / "cta.txt", (concept.get("cta", "").strip() + "\n"))
 
     report = {
         "concept_id": concept["id"],
@@ -616,7 +673,8 @@ def _run_single_concept(
         "use_last_frame_reference": use_last_frame_reference,
         "reuse_video_result_json": reuse_video_result_json,
     }
-    _write_json(concept_dir / "concept_report.json", report)
+    if not video_only_delivery:
+        _write_json(concept_dir / "concept_report.json", report)
     return report
 
 
@@ -631,6 +689,7 @@ def run_anywell_campaign(
     skip_storyboard_crop_for_video: bool = False,
 ) -> dict[str, Any]:
     campaign = load_campaign_config(config_path)
+    delivery_video_only = bool(campaign.get("delivery_video_only", False))
     if skip_storyboard_crop_for_video:
         campaign["skip_storyboard_crop_for_video"] = True
     creative_guardrails = load_creative_guardrails(prompt_path)
@@ -665,7 +724,7 @@ def run_anywell_campaign(
             logger.info("Completed concept %s", concept["id"])
         except Exception as exc:
             logger.exception("Concept %s failed", concept["id"])
-            concept_dir = _ensure_dir(output_root / concept["id"])
+            concept_dir = _ensure_dir(output_root if delivery_video_only else output_root / concept["id"])
             failure = {
                 "concept_id": concept["id"],
                 "title": concept["title"],
@@ -673,7 +732,8 @@ def run_anywell_campaign(
                 "concept_dir": str(concept_dir.resolve()),
                 "error": str(exc),
             }
-            _write_json(concept_dir / "concept_report.json", failure)
+            if not delivery_video_only:
+                _write_json(concept_dir / "concept_report.json", failure)
             results.append(failure)
 
     summary = {
@@ -684,6 +744,7 @@ def run_anywell_campaign(
         "log_path": str(log_path.resolve()),
         "results": results,
     }
-    _write_json(output_root / "campaign_report.json", summary)
-    _write_text(summary_path, _summary_markdown(results, output_root))
+    if not delivery_video_only:
+        _write_json(output_root / "campaign_report.json", summary)
+        _write_text(summary_path, _summary_markdown(results, output_root))
     return summary

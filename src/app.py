@@ -658,7 +658,7 @@ def export_formal_video_step() -> None:
     active_run = current_run_paths()
     if not all_storyboard_clips_ready():
         raise RuntimeError("当前还有片段未完成，无法拼接完整视频。")
-    output_name = f"wheelchair-{datetime.now().strftime('%m%d-%H%M')}.mp4"
+    output_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     if USE_GENERATED_VIDEO_AUDIO:
         st.session_state["final_video_result"] = assemble_final_video(
             ordered_clip_paths(),

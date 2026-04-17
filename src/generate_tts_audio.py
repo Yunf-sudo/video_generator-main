@@ -83,6 +83,7 @@ def _generate_local_tts_windows(text: str, output_dir: str, filename: str) -> tu
         f"$encoded='{encoded_text}'; "
         "$text=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded)); "
         "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "$speaker.Rate = 3; "
         f"$speaker.SetOutputToWaveFile('{escaped_output_path}'); "
         "$speaker.Speak($text); "
         "$speaker.Dispose();"

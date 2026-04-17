@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import base64
+from collections import deque
 import json
 import mimetypes
 import os
+import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -23,7 +26,7 @@ from product_reference_images import (
     get_product_reference_signature,
     get_product_visual_structure_json,
 )
-from workspace_paths import ensure_active_run
+from workspace_paths import cache_root, ensure_active_run
 
 
 load_dotenv()
@@ -35,6 +38,45 @@ VIDEO_REFERENCE_MODE = os.getenv("VIDEO_REFERENCE_MODE", "image").strip().lower(
 VIDEO_RESOLUTION = (os.getenv("VIDEO_RESOLUTION", "1080p").strip() or "1080p").lower()
 VIDEO_NEGATIVE_PROMPT = os.getenv("VIDEO_NEGATIVE_PROMPT", "").strip()
 VIDEO_HTTP_TIMEOUT_SECONDS = max(60.0, float(os.getenv("VIDEO_HTTP_TIMEOUT_SECONDS", "180").strip() or 180))
+GOOGLE_VEO_COST_SAFE_MODE = str(os.getenv("GOOGLE_VEO_COST_SAFE_MODE", "true")).strip().lower() not in {"0", "false", "no", "off"}
+GOOGLE_VEO_MAX_REQUESTS_PER_MINUTE = max(
+    1,
+    int(os.getenv("GOOGLE_VEO_MAX_REQUESTS_PER_MINUTE", "2").strip() or 2),
+)
+GOOGLE_VEO_RATE_WINDOW_SECONDS = 60.0
+GOOGLE_VEO_SUBMIT_MAX_ATTEMPTS = max(
+    1,
+    int(os.getenv("GOOGLE_VEO_SUBMIT_MAX_ATTEMPTS", "1" if GOOGLE_VEO_COST_SAFE_MODE else "3").strip() or 1),
+)
+GOOGLE_VEO_QUERY_MAX_ATTEMPTS = max(
+    1,
+    int(os.getenv("GOOGLE_VEO_QUERY_MAX_ATTEMPTS", "3").strip() or 3),
+)
+GOOGLE_VEO_ALLOW_PROMPT_FALLBACKS = str(
+    os.getenv("GOOGLE_VEO_ALLOW_PROMPT_FALLBACKS", "false" if GOOGLE_VEO_COST_SAFE_MODE else "true")
+).strip().lower() not in {"0", "false", "no", "off"}
+GOOGLE_VEO_PREFLIGHT_TTL_SECONDS = max(
+    60.0,
+    float(os.getenv("GOOGLE_VEO_PREFLIGHT_TTL_SECONDS", "600").strip() or 600),
+)
+GOOGLE_VEO_QUOTA_COOLDOWN_SECONDS = max(
+    60.0,
+    float(os.getenv("GOOGLE_VEO_QUOTA_COOLDOWN_SECONDS", "1800").strip() or 1800),
+)
+
+
+_GOOGLE_REQUEST_TIMESTAMPS: deque[float] = deque()
+_GOOGLE_REQUEST_LOCK = threading.Lock()
+_GOOGLE_PREFLIGHT_LOCK = threading.Lock()
+_GOOGLE_PREFLIGHT_CACHE: dict[str, float | str] = {}
+
+
+def _google_preflight_cache_path() -> Path:
+    return cache_root() / "google_veo_preflight.json"
+
+
+def _google_quota_guard_path() -> Path:
+    return cache_root() / "google_veo_quota_guard.json"
 
 
 def _google_api_key() -> str:
@@ -48,9 +90,152 @@ def _google_api_key() -> str:
     return value.strip().strip('"')
 
 
+def _normalized_model_name(model: str | None = None) -> str:
+    normalized = (model or VIDEO_MODEL).strip() or VIDEO_MODEL
+    if not normalized.startswith("models/"):
+        normalized = f"models/{normalized}"
+    return normalized
+
+
+def _read_guard_payload(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_guard_payload(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _extract_error_text(exc: Exception) -> str:
+    if isinstance(exc, urllib.error.HTTPError):
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return f"{exc}; body: {body[:4000]}".strip()
+    return str(exc)
+
+
+def _is_quota_exhausted_message(message: str) -> bool:
+    lowered = (message or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "resource_exhausted",
+            "exceeded your current quota",
+            "current quota",
+            "billing details",
+            "rate-limits",
+        )
+    )
+
+
+def _set_google_quota_cooldown(reason: str) -> None:
+    expires_at = time.time() + GOOGLE_VEO_QUOTA_COOLDOWN_SECONDS
+    _write_guard_payload(
+        _google_quota_guard_path(),
+        {
+            "expires_at": expires_at,
+            "reason": reason.strip()[:4000],
+            "updated_at": time.time(),
+        },
+    )
+
+
+def _active_google_quota_cooldown_reason() -> str:
+    payload = _read_guard_payload(_google_quota_guard_path())
+    expires_at = float(payload.get("expires_at") or 0)
+    if expires_at <= time.time():
+        return ""
+    remaining_seconds = max(0, int(round(expires_at - time.time())))
+    remaining_minutes = max(1, (remaining_seconds + 59) // 60)
+    reason = str(payload.get("reason") or "").strip()
+    return (
+        f"Google Veo remote submit is paused for about {remaining_minutes} more minute(s) "
+        f"after a quota/billing exhaustion response. Last reason: {reason}"
+    ).strip()
+
+
+def _ensure_google_model_preflight(model: str | None = None) -> None:
+    normalized_model = _normalized_model_name(model)
+    with _GOOGLE_PREFLIGHT_LOCK:
+        now = time.time()
+        cached_model = str(_GOOGLE_PREFLIGHT_CACHE.get("model") or "")
+        cached_at = float(_GOOGLE_PREFLIGHT_CACHE.get("checked_at") or 0)
+        if cached_model == normalized_model and now - cached_at < GOOGLE_VEO_PREFLIGHT_TTL_SECONDS:
+            return
+
+        payload = _read_guard_payload(_google_preflight_cache_path())
+        cached_model = str(payload.get("model") or "")
+        cached_at = float(payload.get("checked_at") or 0)
+        if cached_model == normalized_model and now - cached_at < GOOGLE_VEO_PREFLIGHT_TTL_SECONDS:
+            _GOOGLE_PREFLIGHT_CACHE["model"] = cached_model
+            _GOOGLE_PREFLIGHT_CACHE["checked_at"] = cached_at
+            return
+
+        models_response = _request_json("GET", f"{GOOGLE_VIDEO_BASE_URL}/models")
+        visible_models = {
+            str(item.get("name") or "").strip()
+            for item in models_response.get("models", [])
+            if isinstance(item, dict)
+        }
+        if normalized_model not in visible_models:
+            raise RuntimeError(
+                f"Google Veo preflight failed: {normalized_model} is not visible to the current API key."
+            )
+
+        _GOOGLE_PREFLIGHT_CACHE["model"] = normalized_model
+        _GOOGLE_PREFLIGHT_CACHE["checked_at"] = now
+        _write_guard_payload(
+            _google_preflight_cache_path(),
+            {
+                "model": normalized_model,
+                "checked_at": now,
+            },
+        )
+
+
+def _ensure_google_submit_allowed(model: str | None = None) -> None:
+    cooldown_reason = _active_google_quota_cooldown_reason()
+    if cooldown_reason:
+        raise RuntimeError(cooldown_reason)
+    _ensure_google_model_preflight(model)
+
+
+def _throttle_google_request() -> None:
+    while True:
+        sleep_seconds = 0.0
+        with _GOOGLE_REQUEST_LOCK:
+            now = time.monotonic()
+            while _GOOGLE_REQUEST_TIMESTAMPS and now - _GOOGLE_REQUEST_TIMESTAMPS[0] >= GOOGLE_VEO_RATE_WINDOW_SECONDS:
+                _GOOGLE_REQUEST_TIMESTAMPS.popleft()
+
+            if len(_GOOGLE_REQUEST_TIMESTAMPS) < GOOGLE_VEO_MAX_REQUESTS_PER_MINUTE:
+                _GOOGLE_REQUEST_TIMESTAMPS.append(now)
+                return
+
+            sleep_seconds = max(
+                0.0,
+                GOOGLE_VEO_RATE_WINDOW_SECONDS - (now - _GOOGLE_REQUEST_TIMESTAMPS[0]),
+            )
+
+        if sleep_seconds > 0:
+            # Keep the whole process within the configured Veo request budget.
+            time.sleep(sleep_seconds)
+
+
 def _request_json(method: str, url: str, payload_json: Optional[dict[str, Any]] = None) -> Dict[str, Any]:
     last_error: Exception | None = None
-    for attempt in range(1, 4):
+    max_attempts = GOOGLE_VEO_QUERY_MAX_ATTEMPTS if method.upper() == "GET" else GOOGLE_VEO_SUBMIT_MAX_ATTEMPTS
+    for attempt in range(1, max_attempts + 1):
+        _throttle_google_request()
         request = urllib.request.Request(
             url,
             data=json.dumps(payload_json or {}, ensure_ascii=False).encode("utf-8") if payload_json is not None else None,
@@ -72,19 +257,25 @@ def _request_json(method: str, url: str, payload_json: Optional[dict[str, Any]] 
                 return {"raw": text}
         except Exception as exc:
             last_error = exc
-            message = str(exc)
+            message = _extract_error_text(exc)
+            if _is_quota_exhausted_message(message):
+                _set_google_quota_cooldown(message)
             transient_markers = [
                 "Remote end closed connection without response",
                 "timed out",
                 "timeout",
+                "UNEXPECTED_EOF_WHILE_READING",
+                "EOF occurred in violation of protocol",
+                "EOF occurred",
+                "SSL:",
                 "429",
                 "500",
                 "502",
                 "503",
                 "RESOURCE_EXHAUSTED",
             ]
-            if attempt >= 3 or not any(marker in message for marker in transient_markers):
-                raise RuntimeError(f"Google Veo API request failed: {exc}") from exc
+            if attempt >= max_attempts or not any(marker in message for marker in transient_markers):
+                raise RuntimeError(f"Google Veo API request failed: {message}") from exc
             time.sleep(5.0 * attempt)
     raise RuntimeError(f"Google Veo API request failed after retries: {last_error}")
 
@@ -275,6 +466,7 @@ def generate_video_from_image_url(
     last_frame_url: Optional[str] = None,
     extra_image_urls: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
+    _ensure_google_submit_allowed(model)
     image_part = _inline_asset_from_value(image_url)
     last_frame_part = _inline_asset_from_value(last_frame_url)
     reference_parts = [part for part in (_inline_asset_from_value(url) for url in (extra_image_urls or [])[:3]) if part]
@@ -315,10 +507,11 @@ def query_video(video_id: str) -> Dict[str, Any]:
 
 def wait_for_video_completion(
     video_id: str,
-    poll_interval: float = 15.0,
+    poll_interval: float = 30.0,
     timeout: Optional[float] = 1200.0,
 ) -> Tuple[Dict[str, Any], Optional[str]]:
     start = time.time()
+    poll_interval = max(30.0, float(poll_interval))
     while True:
         try:
             resp = query_video(video_id)
@@ -356,6 +549,7 @@ def wait_for_video_completion(
 def _download_completed_video(video_id: str, video_url: str, clips_dir: Path) -> Dict[str, Any]:
     video_name = f"{uuid.uuid4()}.mp4"
     video_path = clips_dir / video_name
+    _throttle_google_request()
     request = urllib.request.Request(
         video_url,
         headers={
@@ -402,7 +596,7 @@ def _create_remote_video_with_retries(
     aspect_ratio: str,
     duration_seconds: int,
     extra_image_urls: Optional[list[str]] = None,
-    max_attempts: int = 3,
+    max_attempts: int = GOOGLE_VEO_SUBMIT_MAX_ATTEMPTS,
 ) -> Dict[str, Any]:
     last_error: Exception | None = None
     for attempt_index in range(1, max_attempts + 1):
@@ -600,7 +794,7 @@ def generate_video_from_image_path(
                 "prompt": prompt_text,
             }
         )
-    if not strict_reference_only:
+    if not strict_reference_only and GOOGLE_VEO_ALLOW_PROMPT_FALLBACKS:
         remote_attempts.append(
             {
                 "image_url": None,
