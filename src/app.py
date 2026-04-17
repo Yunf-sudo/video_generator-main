@@ -9,56 +9,67 @@ from urllib.parse import parse_qs, urlparse
 
 import streamlit as st
 
+from ad_material_pipeline import register_and_prelaunch_run_output
+from ad_flow_dry_run import run_full_dry_run_test
+from ad_management_agent import run_agent_once
+from ad_ops_config import load_ad_ops_config
+from app_defaults_config import load_app_defaults
 from asr import generate_srt_asset_from_audio
 from generate_scenes_pics_tools import generate_storyboard, repair_single_pic
 from generate_script_tools import generate_scripts, repair_script
 from generate_tts_audio import generate_tts_audio
 from generate_video_tools import generate_video_from_image_path, get_video_path_from_video_id
+from material_library import (
+    build_archive_feature_summary,
+    inventory_snapshot,
+    list_recent_alerts,
+    list_material_records,
+    load_material_record,
+    material_status_summary,
+    update_material_record,
+)
 from media_pipeline import assemble_final_video, build_scene_audio_duration_map
 from quick_cut import capcut_service_status, get_capcut_api_url, quick_cut_video, upload_all_videos_to_rustfs
+from prompt_templates_config import load_prompt_templates
+from runtime_tunables_config import load_runtime_tunables
 from ti_intro_generate_tools import generate_ti_intro
 from workspace_paths import activate_run, run_paths, runs_root, start_new_run, write_run_json
 from youtube_fetch.youtube_video_analysis import analyze_video
 
 
-STYLE_PRESETS = {
-    "产品演示型": "真实、高级、产品中心构图，突出电动操控、稳定和舒适，适合商务演示与客户沟通。",
-    "渠道招商型": "镜头更偏成交导向，强调产品卖点、采购场景和合作价值，节奏更利落。",
-    "家庭关怀型": "画面更温暖，突出日常代步、省力和陪伴感，但仍保持真实可信。",
-    "机构采购型": "突出稳重、专业、耐看，适合康复机构、医院和养老场景展示。",
-}
-
-DEFAULT_INPUTS = {
-    "product_name": "AnyWell 电动轮椅",
-    "product_category": "电动轮椅 / mobility chair",
-    "campaign_goal": "生成一条面向欧美市场的竖版情感广告视频，突出明显肥胖/大体重老年人重新安全走向户外的自由感和尊严感",
-    "target_market": "美国、加拿大、英国和西欧",
-    "target_audience": "欧美市场明显肥胖、heavyset、plus-size 老年人、配偶、35-55 岁成年子女，以及正在为家人评估户外出行辅助产品的家庭",
-    "core_selling_points": "- 平顺双动力系统\n- 稳定的户外通行支持\n- 温和起步和可控转向\n- 支持明显肥胖/大体重长者安心回到户外",
-    "use_scenarios": "- 家庭门口和坡道\n- 后院小路\n- 林地边缘或安静社区道路\n- 与伴侣一起外出看风景",
-    "style_preset": "家庭关怀型",
-    "custom_style_notes": STYLE_PRESETS["家庭关怀型"],
-    "style_tone": "温暖、克制、真实、电影感，避免煽情和医疗化表达",
-    "consistency_anchor": "Match the same AnyWell electric wheelchair across all scenes: consistent frame, armrest, footrest, wheel size, right-side joystick, seat cushion, and side housing. Keep the rear/top-back structure compact and proportional to the real product. Do not invent extra rods, poles, antenna-like parts, cane-like extensions, or exaggerated push bars behind the backrest. Do not show a rear/lower battery pack, exposed cable, folded state, or storage configuration.",
-    "additional_info": "The rider should be the same dignified heavyset or plus-size Western senior across all scenes, clearly broader than an average or slightly stocky build. Show a broad torso and shoulders, rounded belly under normal clothing, thicker arms and legs, and a seated posture that naturally fills the wheelchair seat. Keep body type, wardrobe, posture, and identity consistent. During self-operated motion, the right hand should remain on the right-side joystick. Do not present the chair as autonomous hands-free motion. If short integrated rear handles are naturally visible, keep them subtle, short, close to the backrest, and never the visual focus. White-background product photos are identity references only and must never appear as ad frames or flash cuts.",
-    "language": "English",
-    "video_orientation": "9:16",
-    "desired_scene_count": 5,
-    "preferred_runtime_seconds": 28,
-    "reference_style": "",
-}
+APP_DEFAULTS = load_app_defaults()
+RUNTIME_TUNABLES = load_runtime_tunables()
+PROMPT_TEMPLATES = load_prompt_templates()
+AD_OPS_CONFIG = load_ad_ops_config()
+APP_DEFAULTS_CONFIG_PATH = APP_DEFAULTS["config_path"]
+RUNTIME_TUNABLES_CONFIG_PATH = RUNTIME_TUNABLES["config_path"]
+PROMPT_TEMPLATES_CONFIG_PATH = PROMPT_TEMPLATES["config_path"]
+AD_OPS_CONFIG_PATH = AD_OPS_CONFIG["config_path"]
+STYLE_PRESETS = APP_DEFAULTS["style_presets"]
+DEFAULT_INPUTS = APP_DEFAULTS["default_inputs"]
+LANGUAGE_OPTIONS = APP_DEFAULTS["language_options"]
+VIDEO_ORIENTATION_OPTIONS = APP_DEFAULTS["video_orientation_options"]
 
 MODEL_SUMMARY = {
-    "脚本": os.getenv("SCRIPT_MODEL", "gemini-2.5-flash"),
-    "分镜图": os.getenv("IMAGE_MODEL", "gemini-2.5-flash-image"),
-    "视频": os.getenv("VIDEO_MODEL", "veo-3.1-generate-preview"),
-    "TTS": os.getenv("TTS_MODEL", "native-video-audio"),
-    "竞品分析": os.getenv("YOUTUBE_ANALYSIS_MODEL", "gemini-2.5-flash"),
+    "脚本": os.getenv("SCRIPT_MODEL", str(RUNTIME_TUNABLES["model_config"].get("script_model") or "")),
+    "分镜图": os.getenv("IMAGE_MODEL", str(RUNTIME_TUNABLES["model_config"].get("image_model") or "")),
+    "视频": os.getenv("VIDEO_MODEL", str(RUNTIME_TUNABLES["model_config"].get("video_model") or "")),
+    "TTS": os.getenv("TTS_MODEL", str(RUNTIME_TUNABLES["model_config"].get("tts_model") or "")),
+    "竞品分析": os.getenv(
+        "YOUTUBE_ANALYSIS_MODEL",
+        str(RUNTIME_TUNABLES["model_config"].get("youtube_analysis_model") or ""),
+    ),
+    "翻译": os.getenv("TRANSLATION_MODEL", str(RUNTIME_TUNABLES["model_config"].get("translation_model") or "")),
 }
 
-USE_GENERATED_VIDEO_AUDIO = os.getenv("USE_GENERATED_VIDEO_AUDIO", "true").strip().lower() in {"1", "true", "yes", "on"}
+USE_GENERATED_VIDEO_AUDIO = str(
+    os.getenv(
+        "USE_GENERATED_VIDEO_AUDIO",
+        str(RUNTIME_TUNABLES["app_runtime_flags"].get("use_generated_video_audio", True)),
+    )
+).strip().lower() in {"1", "true", "yes", "on"}
 
-STEP_OPTIONS = ["产品简报", "广告脚本", "分镜图", "视频片段", "配音字幕", "导出成片"]
+STEP_OPTIONS = ["产品简报", "广告脚本", "分镜图", "视频片段", "配音字幕", "导出成片", "广告运营"]
 RECOVERABLE_META_FILES = (
     "script.json",
     "storyboard.json",
@@ -294,6 +305,9 @@ def init_state() -> None:
         "tts_result": {},
         "final_video_result": None,
         "capcut_result": None,
+        "last_agent_run_result": None,
+        "last_dry_run_result": None,
+        "archive_feature_summary": None,
     }
 
     for key, value in defaults.items():
@@ -343,6 +357,82 @@ def _safe_int(value, default: int = 999999) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _material_time_label(item: dict) -> str:
+    return str(item.get("updated_at") or item.get("created_at") or "").replace("T", " ")[:19]
+
+
+def _material_option_label(item: dict) -> str:
+    material_id = str(item.get("material_id") or "")
+    review_status = str(item.get("review_status") or "-")
+    launch_status = str(item.get("launch_status") or "-")
+    source_type = str(item.get("source_type") or "-")
+    return f"{material_id} | {review_status} | {launch_status} | {source_type}"
+
+
+def _build_material_table_rows(records: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for item in records:
+        copy_block = item.get("copy", {}) if isinstance(item.get("copy"), dict) else {}
+        performance = item.get("performance_snapshot", {}) if isinstance(item.get("performance_snapshot"), dict) else {}
+        rows.append(
+            {
+                "素材ID": str(item.get("material_id") or ""),
+                "来源": str(item.get("source_type") or ""),
+                "审核": str(item.get("review_status") or ""),
+                "投放状态": str(item.get("launch_status") or ""),
+                "启用状态": str(item.get("ad_enable_status") or ""),
+                "标题": str(copy_block.get("headline") or "")[:36],
+                "花费": performance.get("spend", 0.0),
+                "CTR": performance.get("ctr", 0.0),
+                "加购": performance.get("add_to_cart", 0.0),
+                "出单": performance.get("purchases", 0.0),
+                "最近更新时间": _material_time_label(item),
+            }
+        )
+    return rows
+
+
+def _filter_material_records(
+    records: list[dict],
+    *,
+    keyword: str = "",
+    review_status: str = "全部",
+    launch_status: str = "全部",
+    source_type: str = "全部",
+    only_current_run: bool = False,
+    current_run_id: str = "",
+) -> list[dict]:
+    filtered: list[dict] = []
+    keyword = keyword.strip().lower()
+    for item in records:
+        if review_status != "全部" and str(item.get("review_status") or "") != review_status:
+            continue
+        if launch_status != "全部" and str(item.get("launch_status") or "") != launch_status:
+            continue
+        if source_type != "全部" and str(item.get("source_type") or "") != source_type:
+            continue
+        if only_current_run and str(item.get("run_id") or "") != current_run_id:
+            continue
+
+        if keyword:
+            text_parts = [
+                str(item.get("material_id") or ""),
+                str(item.get("run_id") or ""),
+                str(item.get("review_status") or ""),
+                str(item.get("launch_status") or ""),
+                str(item.get("source_type") or ""),
+                str((item.get("copy") or {}).get("headline") or ""),
+                str((item.get("copy") or {}).get("primary_text") or ""),
+                str(item.get("landing_page_url") or ""),
+            ]
+            haystack = " ".join(text_parts).lower()
+            if keyword not in haystack:
+                continue
+        filtered.append(item)
+    filtered.sort(key=lambda record: str(record.get("updated_at") or record.get("created_at") or ""), reverse=True)
+    return filtered
 
 
 def scene_list(script: dict | None) -> list[dict]:
@@ -708,6 +798,10 @@ def run_full_pipeline() -> None:
 def render_sidebar() -> None:
     with st.sidebar:
         st.markdown("## 历史记录")
+        st.caption(f"默认配置文件：{APP_DEFAULTS_CONFIG_PATH}")
+        st.caption(f"运行调参文件：{RUNTIME_TUNABLES_CONFIG_PATH}")
+        st.caption(f"提示词模板文件：{PROMPT_TEMPLATES_CONFIG_PATH}")
+        st.caption(f"广告业务配置：{AD_OPS_CONFIG_PATH}")
         st.caption("只显示已经生成过脚本、分镜、片段或成片的 Run；空白简报 Run 不会列出。")
         recent_runs = list_recoverable_runs()
         if recent_runs:
@@ -765,6 +859,12 @@ def render_sidebar() -> None:
         for label, model_name in MODEL_SUMMARY.items():
             st.caption(f"{label}: {model_name}")
 
+        ad_summary = material_status_summary()
+        ad_inventory = inventory_snapshot()
+        st.markdown("## 广告库存")
+        st.metric("可用素材", ad_inventory["ready_materials"])
+        st.metric("待审核素材", ad_summary["pending_review"])
+
 
 def render_header() -> None:
     st.title("电动轮椅广告工作台")
@@ -781,6 +881,8 @@ def render_header() -> None:
 def render_brief_tab() -> None:
     st.subheader("1. 产品简报")
     st.write("这里确定电动轮椅的广告目标、风格和产品一致性约束，后续模块都会沿用这份简报。")
+    st.caption(f"当前默认参数配置文件：{APP_DEFAULTS_CONFIG_PATH}")
+    st.caption("当前交互输入建议使用中文；系统会在调用模型前自动翻译成英文，再进入脚本/分镜/视频生成链路。")
 
     with st.expander("竞品视频风格参考", expanded=False):
         st.session_state["competitor_video_id"] = st.text_input(
@@ -815,8 +917,10 @@ def render_brief_tab() -> None:
             target_audience = st.text_area("可编辑 | 目标受众", value=st.session_state["inputs"]["target_audience"], height=110)
             language = st.selectbox(
                 "可编辑 | 输出语言",
-                options=["Chinese", "English"],
-                index=["Chinese", "English"].index(st.session_state["inputs"]["language"]),
+                options=LANGUAGE_OPTIONS,
+                index=LANGUAGE_OPTIONS.index(st.session_state["inputs"]["language"])
+                if st.session_state["inputs"]["language"] in LANGUAGE_OPTIONS
+                else 0,
             )
             desired_scene_count = st.slider(
                 "可编辑 | 目标场景数",
@@ -848,8 +952,10 @@ def render_brief_tab() -> None:
             additional_info = st.text_area("可编辑 | 补充说明", value=st.session_state["inputs"]["additional_info"], height=110)
             video_orientation = st.selectbox(
                 "可编辑 | 画幅比例",
-                options=["9:16", "16:9", "1:1"],
-                index=["9:16", "16:9", "1:1"].index(st.session_state["inputs"]["video_orientation"]),
+                options=VIDEO_ORIENTATION_OPTIONS,
+                index=VIDEO_ORIENTATION_OPTIONS.index(st.session_state["inputs"]["video_orientation"])
+                if st.session_state["inputs"]["video_orientation"] in VIDEO_ORIENTATION_OPTIONS
+                else 0,
             )
 
         upload_files = st.file_uploader(
@@ -857,6 +963,26 @@ def render_brief_tab() -> None:
             type=["png", "jpg", "jpeg", "webp"],
             accept_multiple_files=True,
         )
+
+        with st.expander("高级提示词组件", expanded=False):
+            prompt_scene_description_notes = st.text_area(
+                "可编辑 | 场景描述补充",
+                value=st.session_state["inputs"].get("prompt_scene_description_notes", ""),
+                height=110,
+                help="这里补充全局场景描述倾向，后续会和每个场景脚本一起打包给 AI 整合。",
+            )
+            prompt_special_emphasis = st.text_area(
+                "可编辑 | 特殊点强调",
+                value=st.session_state["inputs"].get("prompt_special_emphasis", ""),
+                height=110,
+                help="这里写想重点强调的卖点、人物状态、构图倾向或镜头重点。",
+            )
+            prompt_error_notes = st.text_area(
+                "可编辑 | 易出错点补充",
+                value=st.session_state["inputs"].get("prompt_error_notes", ""),
+                height=130,
+                help="这里补充模型常犯错误。系统还会自动叠加独立错误模块里的默认约束。",
+            )
         submitted = st.form_submit_button("保存简报")
 
     if submitted:
@@ -874,6 +1000,9 @@ def render_brief_tab() -> None:
             "style_tone": style_tone,
             "consistency_anchor": consistency_anchor,
             "additional_info": additional_info,
+            "prompt_scene_description_notes": prompt_scene_description_notes,
+            "prompt_special_emphasis": prompt_special_emphasis,
+            "prompt_error_notes": prompt_error_notes,
             "language": language,
             "video_orientation": video_orientation,
             "desired_scene_count": desired_scene_count,
@@ -998,6 +1127,13 @@ def render_storyboard_tab() -> None:
                 st.markdown(f"**场景 {frame['scene_number']} | 计划 {frame['duration_seconds']}s**")
                 st.write(frame["scene_description"])
                 st.caption(frame["key_message"])
+                with st.expander("查看本场景最终图片提示词", expanded=False):
+                    if frame.get("image_prompt"):
+                        st.code(frame["image_prompt"], language="text")
+                    if frame.get("image_prompt_mode"):
+                        st.caption(f"组装方式：{frame['image_prompt_mode']} | 模型：{frame.get('image_prompt_model', '')}")
+                    if frame.get("image_prompt_composer_bundle"):
+                        st.json(frame["image_prompt_composer_bundle"])
                 with st.expander("修改这个分镜"):
                     feedback = st.text_area(
                         "可编辑 | 分镜修改意见",
@@ -1073,6 +1209,9 @@ def render_clips_tab() -> None:
                 st.info(f"远端任务 ID：{scene_result['video_id']}")
             else:
                 st.info("这个场景还没开始生成视频。")
+            with st.expander("查看本场景最终视频提示词", expanded=False):
+                if scene_result.get("video_prompt"):
+                    st.code(scene_result["video_prompt"], language="text")
 
 
 def render_audio_tab() -> None:
@@ -1149,6 +1288,13 @@ def render_export_tab() -> None:
     if isinstance(final_result, dict) and final_result.get("video_path"):
         st.video(final_result["video_path"])
         st.caption(final_result["video_path"])
+        st.markdown("### 下一步")
+        st.write("正式成片已经准备好。上传到 Meta 暂存池、关停预上架、审核、Agent 扫描和 Dry Run 测试现在统一放在“广告运营”页签里，方便集中处理。")
+        if st.button("进入广告运营", use_container_width=True):
+            st.session_state["active_step"] = "广告运营"
+            st.session_state["active_step_nav"] = "广告运营"
+            st.session_state["active_step_nav_synced"] = "广告运营"
+            st.rerun()
 
     with st.expander("可选：导入剪映草稿", expanded=False):
         st.caption("这一步不是主流程。只有在你确实需要继续进剪映微调时才用。")
@@ -1172,6 +1318,320 @@ def render_export_tab() -> None:
         if isinstance(capcut_result, dict):
             st.caption(f"剪映草稿 ID：{capcut_result.get('draft_id')}")
             st.caption(f"剪映草稿地址：{capcut_result.get('draft_url')}")
+
+
+def render_ad_ops_tab() -> None:
+    st.subheader("7. 广告运营")
+    st.write("这里统一处理 Meta 暂存池入库、关停预上架、审核、Agent 扫描和 Dry Run 测试。生成完成的视频会直接进入 Meta，PAUSED 状态即视为库存。")
+    st.caption(f"广告业务配置文件：{AD_OPS_CONFIG_PATH}")
+
+    meta_ads_config = _coerce_dict(AD_OPS_CONFIG.get("meta_ads"))
+    monitor_rules = _coerce_dict(AD_OPS_CONFIG.get("monitor_rules"))
+    inventory = inventory_snapshot()
+    status_summary = material_status_summary()
+    all_materials = list_material_records()
+    recent_alerts = list_recent_alerts(limit=5)
+
+    if bool(meta_ads_config.get("dry_run_mode")):
+        st.warning("当前 Meta 处于 Dry Run 模式：可以完整演练素材入库、预上架和 Agent 监控流程，但不会真的创建线上广告。")
+    else:
+        st.success("当前 Meta 为真实请求模式。执行预上架前，请确认账号、广告组、主页和落地页都已经配置正确。")
+
+    metric_cols = st.columns(6)
+    metric_cols[0].metric("素材总数", status_summary["total_materials"])
+    metric_cols[1].metric("可用库存", inventory["ready_materials"])
+    metric_cols[2].metric("待审核", status_summary["pending_review"])
+    metric_cols[3].metric("已预上架", status_summary["prelaunched_paused"])
+    metric_cols[4].metric("运行中广告", status_summary["active"])
+    metric_cols[5].metric("失败归档", status_summary["archived_failed"])
+
+    if inventory["needs_generation"]:
+        st.warning(
+            f"当前库存低于安全线，建议至少补量生成 {inventory['recommended_generation_count']} 条素材，"
+            f"把可用库存拉回到目标值 {inventory['target_ready_materials']}。"
+        )
+    else:
+        st.info(
+            f"当前可用库存 {inventory['ready_materials']} 条，已接近或达到目标库存 {inventory['target_ready_materials']} 条，可以优先推进审核、预上架和复盘。"
+        )
+
+    current_run_result = st.session_state.get("final_video_result")
+    if isinstance(current_run_result, dict) and current_run_result.get("video_path"):
+        with st.container(border=True):
+            st.markdown("#### 当前 Run 快捷操作")
+            st.caption(
+                f"当前 Run 已有正式成片：{st.session_state.get('run_id', '')}。如果要把这一条内容接入广告链路，直接上传到 Meta 并保持关停即可。"
+            )
+            if st.button("当前 Run 上传到 Meta 暂存池（关停）", use_container_width=True):
+                try:
+                    material = register_and_prelaunch_run_output(
+                        run_id=str(st.session_state.get("run_id") or ""),
+                        final_video_result=current_run_result,
+                        script=st.session_state.get("script"),
+                        ti_intro=st.session_state.get("ti_intro"),
+                        source_inputs=st.session_state.get("inputs"),
+                    )
+                    st.success(
+                        f"已进入 Meta 暂存池：素材 {material.get('material_id')} | ad_id {material.get('meta_mapping', {}).get('ad_id', '')}"
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"上传到 Meta 暂存池失败：{exc}")
+    else:
+        st.info("当前 Run 还没有正式成片。你仍然可以在这个页签查看 Meta 暂存池状态、审核素材、运行 Agent 和执行 Dry Run 测试。")
+
+    library_tab, ops_tab, archive_tab = st.tabs(["Meta 暂存池", "运营操作", "归档复盘"])
+
+    with library_tab:
+        st.markdown("#### Meta 暂存池筛选")
+        filter_cols = st.columns([1.6, 1, 1, 1, 0.9])
+        keyword = filter_cols[0].text_input(
+            "搜索",
+            value="",
+            placeholder="按素材ID / Run ID / 标题 / 文案关键词搜索",
+            key="material_filter_keyword",
+        )
+        review_options = ["全部"] + sorted({str(item.get("review_status") or "") for item in all_materials if item.get("review_status")})
+        review_filter = filter_cols[1].selectbox("审核状态", review_options, key="material_review_filter")
+        launch_options = ["全部"] + sorted({str(item.get("launch_status") or "") for item in all_materials if item.get("launch_status")})
+        launch_filter = filter_cols[2].selectbox("投放状态", launch_options, key="material_launch_filter")
+        source_options = ["全部"] + sorted({str(item.get("source_type") or "") for item in all_materials if item.get("source_type")})
+        source_filter = filter_cols[3].selectbox("素材来源", source_options, key="material_source_filter")
+        only_current_run = filter_cols[4].checkbox(
+            "仅当前 Run",
+            value=False,
+            key="material_filter_current_run_only",
+            disabled=not bool(st.session_state.get("run_id")),
+        )
+
+        filtered_materials = _filter_material_records(
+            all_materials,
+            keyword=keyword,
+            review_status=review_filter,
+            launch_status=launch_filter,
+            source_type=source_filter,
+            only_current_run=only_current_run,
+            current_run_id=str(st.session_state.get("run_id") or ""),
+        )
+
+        st.caption(f"筛选结果：{len(filtered_materials)} 条。默认按最近更新时间倒序展示。")
+        if filtered_materials:
+            st.dataframe(_build_material_table_rows(filtered_materials[:20]), use_container_width=True, hide_index=True)
+
+            material_options = {
+                item["material_id"]: item
+                for item in filtered_materials
+                if isinstance(item, dict) and item.get("material_id")
+            }
+            selected_material_id = st.selectbox(
+                "选择 Meta 暂存素材查看详情",
+                list(material_options.keys()),
+                format_func=lambda value: _material_option_label(material_options[value]),
+                key="selected_material_id_for_ops",
+            )
+            selected_material = load_material_record(selected_material_id)
+            copy_block = _coerce_dict(selected_material.get("copy"))
+            performance = _coerce_dict(selected_material.get("performance_snapshot"))
+            meta_mapping = _coerce_dict(selected_material.get("meta_mapping"))
+            history = _coerce_list(selected_material.get("history"))
+
+            detail_left, detail_right = st.columns([1.1, 0.9])
+            with detail_left:
+                st.markdown("#### 暂存素材详情")
+                info_cols = st.columns(3)
+                info_cols[0].metric("审核状态", str(selected_material.get("review_status") or "-"))
+                info_cols[1].metric("投放状态", str(selected_material.get("launch_status") or "-"))
+                info_cols[2].metric("来源", str(selected_material.get("source_type") or "-"))
+                st.caption(f"素材 ID：{selected_material_id}")
+                st.caption(f"所属 Run：{selected_material.get('run_id') or '无'}")
+                st.caption(f"最近更新时间：{_material_time_label(selected_material)}")
+                if selected_material.get("landing_page_url"):
+                    st.caption(f"落地页：{selected_material.get('landing_page_url')}")
+                if selected_material.get("pause_reason"):
+                    st.warning(f"暂停原因：{selected_material.get('pause_reason')}")
+                if selected_material.get("archive_bucket"):
+                    st.info(
+                        f"归档桶：{selected_material.get('archive_bucket')} | 原因：{selected_material.get('archive_reason') or '未记录'}"
+                    )
+
+            with detail_right:
+                st.markdown("#### 视频预览")
+                storage_uri = str(selected_material.get("storage_uri") or "").strip()
+                if storage_uri and Path(storage_uri).exists():
+                    st.video(storage_uri)
+                    st.caption(storage_uri)
+                else:
+                    st.info("当前素材没有可播放的视频文件。")
+
+            detail_tabs = st.tabs(["文案信息", "表现快照", "事件历史"])
+            with detail_tabs[0]:
+                st.text_area("标题", value=str(copy_block.get("headline") or ""), height=80, disabled=True)
+                st.text_area("主文案", value=str(copy_block.get("primary_text") or ""), height=120, disabled=True)
+                st.text_area("补充描述", value=str(copy_block.get("description") or ""), height=80, disabled=True)
+                st.caption(f"CTA：{copy_block.get('cta') or ''}")
+                if copy_block.get("tags"):
+                    st.caption(f"标签：{', '.join([str(tag) for tag in copy_block.get('tags', [])])}")
+            with detail_tabs[1]:
+                perf_cols = st.columns(5)
+                perf_cols[0].metric("花费", performance.get("spend", 0.0))
+                perf_cols[1].metric("CTR", performance.get("ctr", 0.0))
+                perf_cols[2].metric("加购", performance.get("add_to_cart", 0.0))
+                perf_cols[3].metric("出单", performance.get("purchases", 0.0))
+                perf_cols[4].metric("ROAS", performance.get("roas", 0.0))
+                st.json(
+                    {
+                        "meta_mapping": meta_mapping,
+                        "performance_snapshot": performance,
+                        "ad_enable_status": selected_material.get("ad_enable_status"),
+                        "target_adset_id": selected_material.get("target_adset_id"),
+                        "page_id": selected_material.get("page_id"),
+                    }
+                )
+            with detail_tabs[2]:
+                if history:
+                    for event in reversed(history[-12:]):
+                        st.caption(f"{event.get('time', '')} | {event.get('type', '')}")
+                        if event.get("payload"):
+                            st.json(event.get("payload"))
+                else:
+                    st.caption("这条素材还没有事件历史。")
+
+            review_note = st.text_input(
+                "审核备注",
+                value=str(selected_material.get("review_note") or ""),
+                key=f"review_note_input_{selected_material_id}",
+            )
+            review_cols = st.columns(3)
+            if review_cols[0].button("审核通过", use_container_width=True, key=f"approve_{selected_material_id}"):
+                update_material_record(
+                    selected_material_id,
+                    {"review_status": "approved", "review_note": review_note or "approved in streamlit"},
+                )
+                st.success(f"{selected_material_id} 已标记为 approved")
+                st.rerun()
+            if review_cols[1].button("驳回素材", use_container_width=True, key=f"reject_{selected_material_id}"):
+                update_material_record(
+                    selected_material_id,
+                    {"review_status": "rejected", "review_note": review_note or "rejected in streamlit"},
+                )
+                st.warning(f"{selected_material_id} 已标记为 rejected")
+                st.rerun()
+            if review_cols[2].button("恢复待审核", use_container_width=True, key=f"reset_{selected_material_id}"):
+                update_material_record(
+                    selected_material_id,
+                    {"review_status": "pending_review", "review_note": review_note or "reset in streamlit"},
+                )
+                st.info(f"{selected_material_id} 已恢复为 pending_review")
+                st.rerun()
+        else:
+            st.info("当前筛选条件下没有素材。可以先放宽筛选，或者先把当前 Run 上传到 Meta 暂存池。")
+
+    with ops_tab:
+        st.markdown("#### 运营操作台")
+        summary_cols = st.columns(3)
+        summary_cols[0].metric("库存目标", inventory["target_ready_materials"])
+        summary_cols[1].metric("建议补量", inventory["recommended_generation_count"])
+        summary_cols[2].metric("轮询频率", f"{monitor_rules.get('monitor_interval_minutes', 60)} 分钟")
+
+        st.caption(
+            f"默认广告账户：{meta_ads_config.get('ad_account_id', '')} | "
+            f"默认广告组：{', '.join([str(item) for item in meta_ads_config.get('default_target_adset_ids', [])])} | "
+            f"默认落地页：{meta_ads_config.get('default_landing_page_url', '')}"
+        )
+
+        action_cols = st.columns(2)
+        if action_cols[0].button("广告 Agent 扫描一次", use_container_width=True):
+            try:
+                result = run_agent_once()
+                st.session_state["last_agent_run_result"] = result
+                st.success("Agent 扫描完成。")
+            except Exception as exc:
+                st.error(f"Agent 扫描失败：{exc}")
+
+        if action_cols[1].button("执行 Dry Run 全链路测试", use_container_width=True):
+            try:
+                result = run_full_dry_run_test()
+                st.session_state["last_dry_run_result"] = result
+                st.success("Dry Run 测试完成。")
+            except Exception as exc:
+                st.error(f"Dry Run 测试失败：{exc}")
+
+        config_cols = st.columns(2)
+        with config_cols[0]:
+            with st.expander("查看运营规则摘要", expanded=False):
+                st.json(
+                    {
+                        "target_active_ads_per_adset": monitor_rules.get("target_active_ads_per_adset"),
+                        "min_impressions": monitor_rules.get("min_impressions"),
+                        "min_ctr": monitor_rules.get("min_ctr"),
+                        "min_atc": monitor_rules.get("min_atc"),
+                        "min_roas": monitor_rules.get("min_roas"),
+                        "winner_purchase_count": monitor_rules.get("winner_purchase_count"),
+                    }
+                )
+        with config_cols[1]:
+            with st.expander("最近告警", expanded=False):
+                if recent_alerts:
+                    for alert in recent_alerts:
+                        st.caption(f"{alert.get('created_at', '')} | {alert.get('alert_type', '')}")
+                        st.write(alert.get("message", ""))
+                else:
+                    st.caption("最近没有告警。")
+
+        if st.session_state.get("last_agent_run_result"):
+            with st.expander("最近一次 Agent 扫描结果", expanded=False):
+                st.json(st.session_state["last_agent_run_result"])
+
+        if st.session_state.get("last_dry_run_result"):
+            with st.expander("最近一次 Dry Run 结果", expanded=False):
+                st.json(st.session_state["last_dry_run_result"])
+
+    with archive_tab:
+        st.markdown("#### 成功 / 失败素材复盘")
+        st.caption("这里把归档结果按成功与失败做简单特征聚合，帮助你们调整下一轮生成方向。")
+
+        archive_summary = st.session_state.get("archive_feature_summary")
+        if archive_summary is None and (status_summary["archived_success"] or status_summary["archived_failed"]):
+            try:
+                archive_summary = build_archive_feature_summary()
+                st.session_state["archive_feature_summary"] = archive_summary
+            except Exception:
+                archive_summary = None
+
+        if st.button("刷新归档特征总结", use_container_width=True):
+            try:
+                archive_summary = build_archive_feature_summary()
+                st.session_state["archive_feature_summary"] = archive_summary
+                st.success("归档总结已刷新。")
+            except Exception as exc:
+                st.error(f"刷新归档总结失败：{exc}")
+
+        archive_metric_cols = st.columns(2)
+        archive_metric_cols[0].metric("成功归档", status_summary["archived_success"])
+        archive_metric_cols[1].metric("失败归档", status_summary["archived_failed"])
+
+        if archive_summary:
+            insight_cols = st.columns(2)
+            with insight_cols[0]:
+                st.markdown("**成功素材特征**")
+                st.json(
+                    {
+                        "success_style_presets": archive_summary.get("success_style_presets", {}),
+                        "success_markets": archive_summary.get("success_markets", {}),
+                    }
+                )
+            with insight_cols[1]:
+                st.markdown("**失败素材特征**")
+                st.json(
+                    {
+                        "failed_style_presets": archive_summary.get("failed_style_presets", {}),
+                        "failed_markets": archive_summary.get("failed_markets", {}),
+                    }
+                )
+            with st.expander("查看完整归档总结 JSON", expanded=False):
+                st.json(archive_summary)
+        else:
+            st.info("当前还没有可用于复盘的归档数据。等广告进入 success / failed 归档后，这里会自动开始形成总结。")
 
 
 def main() -> None:
@@ -1207,6 +1667,8 @@ def main() -> None:
         render_audio_tab()
     elif active_step == "导出成片":
         render_export_tab()
+    elif active_step == "广告运营":
+        render_ad_ops_tab()
     render_sidebar()
 
 

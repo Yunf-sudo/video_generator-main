@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content, image_part_from_path
+from runtime_tunables_config import load_runtime_tunables
 from workspace_paths import PROJECT_ROOT, cache_root
 
 try:
@@ -22,7 +23,11 @@ CACHE_PATH = cache_root() / "product_visual_structure_cache.json"
 LEGACY_CACHE_PATHS = [
     PROJECT_ROOT / "product_visual_structure_cache.json",
 ]
-VISION_MODEL = os.getenv("VISION_MODEL", os.getenv("META_MODEL", DEFAULT_TEXT_MODEL))
+RUNTIME_TUNABLES = load_runtime_tunables()
+VISION_MODEL = os.getenv(
+    "VISION_MODEL",
+    os.getenv("META_MODEL", str(RUNTIME_TUNABLES["model_config"].get("vision_model") or DEFAULT_TEXT_MODEL)),
+)
 
 VISION_SCHEMA = {
     "type": "object",

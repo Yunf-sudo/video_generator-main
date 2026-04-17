@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
 from prompt_context import build_prompt_context
 from prompts_en import ti_intro_generator_prompt, ti_intro_generator_prompt_with_ref
+from runtime_tunables_config import load_runtime_tunables
 from youtube_fetch.youtube_fetcher import fetch_channel_info
 from workspace_paths import ensure_active_run
 
@@ -20,7 +21,11 @@ except ImportError:  # pragma: no cover - optional dependency
 
 load_dotenv()
 
-DEFAULT_META_MODEL = os.getenv("META_MODEL", DEFAULT_TEXT_MODEL)
+RUNTIME_TUNABLES = load_runtime_tunables()
+DEFAULT_META_MODEL = os.getenv(
+    "META_MODEL",
+    str(RUNTIME_TUNABLES["model_config"].get("meta_model") or DEFAULT_TEXT_MODEL),
+)
 
 TI_INTRO_SCHEMA = {
     "type": "object",

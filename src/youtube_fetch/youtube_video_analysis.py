@@ -8,12 +8,17 @@ import requests
 from dotenv import load_dotenv
 
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
+from runtime_tunables_config import load_runtime_tunables
 
 
 load_dotenv()
 
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
-PRIMARY_ANALYSIS_MODEL = os.getenv("YOUTUBE_ANALYSIS_MODEL", DEFAULT_TEXT_MODEL)
+RUNTIME_TUNABLES = load_runtime_tunables()
+PRIMARY_ANALYSIS_MODEL = os.getenv(
+    "YOUTUBE_ANALYSIS_MODEL",
+    str(RUNTIME_TUNABLES["model_config"].get("youtube_analysis_model") or DEFAULT_TEXT_MODEL),
+)
 
 
 def _youtube_api_get(endpoint: str, params: dict[str, str]) -> dict[str, Any]:

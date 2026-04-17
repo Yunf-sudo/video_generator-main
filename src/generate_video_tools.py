@@ -17,51 +17,107 @@ import cv2
 import numpy as np
 from dotenv import load_dotenv
 
+from generation_prompt_builder import compose_generation_prompt
 from media_pipeline import generate_local_clip, probe_media_duration
-from prompt_context import build_prompt_context
 from prompt_overrides import apply_override
-from prompts_en import video_generate_prompt
 from product_reference_images import (
     get_product_reference_images,
     get_product_reference_signature,
     get_product_visual_structure_json,
 )
+from runtime_tunables_config import load_runtime_tunables
 from workspace_paths import cache_root, ensure_active_run
 
 
 load_dotenv()
 
-GOOGLE_VIDEO_BASE_URL = os.getenv("GOOGLE_VIDEO_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip()
-VIDEO_PROVIDER = "google"
-VIDEO_MODEL = os.getenv("VIDEO_MODEL", "veo-3.1-generate-preview").strip() or "veo-3.1-generate-preview"
-VIDEO_REFERENCE_MODE = os.getenv("VIDEO_REFERENCE_MODE", "image").strip().lower()
-VIDEO_RESOLUTION = (os.getenv("VIDEO_RESOLUTION", "1080p").strip() or "1080p").lower()
-VIDEO_NEGATIVE_PROMPT = os.getenv("VIDEO_NEGATIVE_PROMPT", "").strip()
-VIDEO_HTTP_TIMEOUT_SECONDS = max(60.0, float(os.getenv("VIDEO_HTTP_TIMEOUT_SECONDS", "180").strip() or 180))
-GOOGLE_VEO_COST_SAFE_MODE = str(os.getenv("GOOGLE_VEO_COST_SAFE_MODE", "true")).strip().lower() not in {"0", "false", "no", "off"}
+RUNTIME_TUNABLES = load_runtime_tunables()
+VIDEO_RUNTIME = RUNTIME_TUNABLES["video_runtime"]
+
+GOOGLE_VIDEO_BASE_URL = os.getenv(
+    "GOOGLE_VIDEO_BASE_URL",
+    str(VIDEO_RUNTIME.get("google_video_base_url") or "https://generativelanguage.googleapis.com/v1beta"),
+).strip()
+VIDEO_PROVIDER = str(VIDEO_RUNTIME.get("video_provider") or "google").strip() or "google"
+VIDEO_MODEL = os.getenv(
+    "VIDEO_MODEL",
+    str(RUNTIME_TUNABLES["model_config"].get("video_model") or "veo-3.1-generate-preview"),
+).strip() or "veo-3.1-generate-preview"
+VIDEO_REFERENCE_MODE = os.getenv(
+    "VIDEO_REFERENCE_MODE",
+    str(VIDEO_RUNTIME.get("video_reference_mode") or "image"),
+).strip().lower()
+VIDEO_RESOLUTION = (
+    os.getenv("VIDEO_RESOLUTION", str(VIDEO_RUNTIME.get("video_resolution") or "1080p")).strip() or "1080p"
+).lower()
+VIDEO_NEGATIVE_PROMPT = os.getenv(
+    "VIDEO_NEGATIVE_PROMPT",
+    str(VIDEO_RUNTIME.get("video_negative_prompt") or ""),
+).strip()
+VIDEO_HTTP_TIMEOUT_SECONDS = max(
+    60.0,
+    float(os.getenv("VIDEO_HTTP_TIMEOUT_SECONDS", str(VIDEO_RUNTIME.get("video_http_timeout_seconds") or 180)).strip() or 180),
+)
+GOOGLE_VEO_COST_SAFE_MODE = str(
+    os.getenv("GOOGLE_VEO_COST_SAFE_MODE", str(VIDEO_RUNTIME.get("google_veo_cost_safe_mode", True)))
+).strip().lower() not in {"0", "false", "no", "off"}
 GOOGLE_VEO_MAX_REQUESTS_PER_MINUTE = max(
     1,
-    int(os.getenv("GOOGLE_VEO_MAX_REQUESTS_PER_MINUTE", "2").strip() or 2),
+    int(
+        os.getenv(
+            "GOOGLE_VEO_MAX_REQUESTS_PER_MINUTE",
+            str(VIDEO_RUNTIME.get("google_veo_max_requests_per_minute") or 2),
+        ).strip()
+        or 2
+    ),
 )
-GOOGLE_VEO_RATE_WINDOW_SECONDS = 60.0
+GOOGLE_VEO_RATE_WINDOW_SECONDS = float(VIDEO_RUNTIME.get("google_veo_rate_window_seconds") or 60.0)
 GOOGLE_VEO_SUBMIT_MAX_ATTEMPTS = max(
     1,
-    int(os.getenv("GOOGLE_VEO_SUBMIT_MAX_ATTEMPTS", "1" if GOOGLE_VEO_COST_SAFE_MODE else "3").strip() or 1),
+    int(
+        os.getenv(
+            "GOOGLE_VEO_SUBMIT_MAX_ATTEMPTS",
+            str(
+                VIDEO_RUNTIME.get("google_veo_submit_max_attempts")
+                or ("1" if GOOGLE_VEO_COST_SAFE_MODE else "3")
+            ),
+        ).strip()
+        or 1
+    ),
 )
 GOOGLE_VEO_QUERY_MAX_ATTEMPTS = max(
     1,
-    int(os.getenv("GOOGLE_VEO_QUERY_MAX_ATTEMPTS", "3").strip() or 3),
+    int(os.getenv("GOOGLE_VEO_QUERY_MAX_ATTEMPTS", str(VIDEO_RUNTIME.get("google_veo_query_max_attempts") or 3)).strip() or 3),
 )
 GOOGLE_VEO_ALLOW_PROMPT_FALLBACKS = str(
-    os.getenv("GOOGLE_VEO_ALLOW_PROMPT_FALLBACKS", "false" if GOOGLE_VEO_COST_SAFE_MODE else "true")
+    os.getenv(
+        "GOOGLE_VEO_ALLOW_PROMPT_FALLBACKS",
+        str(
+            VIDEO_RUNTIME.get("google_veo_allow_prompt_fallbacks")
+            if VIDEO_RUNTIME.get("google_veo_allow_prompt_fallbacks") is not None
+            else (False if GOOGLE_VEO_COST_SAFE_MODE else True)
+        ),
+    )
 ).strip().lower() not in {"0", "false", "no", "off"}
 GOOGLE_VEO_PREFLIGHT_TTL_SECONDS = max(
     60.0,
-    float(os.getenv("GOOGLE_VEO_PREFLIGHT_TTL_SECONDS", "600").strip() or 600),
+    float(
+        os.getenv(
+            "GOOGLE_VEO_PREFLIGHT_TTL_SECONDS",
+            str(VIDEO_RUNTIME.get("google_veo_preflight_ttl_seconds") or 600),
+        ).strip()
+        or 600
+    ),
 )
 GOOGLE_VEO_QUOTA_COOLDOWN_SECONDS = max(
     60.0,
-    float(os.getenv("GOOGLE_VEO_QUOTA_COOLDOWN_SECONDS", "1800").strip() or 1800),
+    float(
+        os.getenv(
+            "GOOGLE_VEO_QUOTA_COOLDOWN_SECONDS",
+            str(VIDEO_RUNTIME.get("google_veo_quota_cooldown_seconds") or 1800),
+        ).strip()
+        or 1800
+    ),
 )
 
 
@@ -691,19 +747,21 @@ def _build_video_prompt(
         resolved_product_reference_signature = "\n".join(compact_signature_parts[:8])
         resolved_product_visual_structure = compact_structure
 
-    prompt_context = build_prompt_context({**(meta or {}), **({"hero_product_name": hero_product_name} if hero_product_name else {})})
-    payload = {
-        "scene_description": "" if generic_only else scene_info,
-        "visuals": visuals,
-        "audio": scene_audio or {},
-        "continuity": continuity or {},
-        "duration_seconds": duration_seconds,
-        "aspect_ratio": aspect_ratio,
-        "product_reference_signature": resolved_product_reference_signature,
-        "product_visual_structure": resolved_product_visual_structure,
-    }
+    prompt_composition = compose_generation_prompt(
+        target="video",
+        scene_description="" if generic_only else scene_info,
+        visuals=visuals,
+        scene_audio=scene_audio or {},
+        continuity=continuity or {},
+        aspect_ratio=aspect_ratio,
+        duration_seconds=duration_seconds,
+        meta=meta,
+        hero_product_name=hero_product_name,
+        product_reference_signature=resolved_product_reference_signature,
+        product_visual_structure=resolved_product_visual_structure,
+    )
     return apply_override(
-        video_generate_prompt.format(info=json.dumps(payload, ensure_ascii=False), **prompt_context),
+        prompt_composition["prompt"],
         "video_prompt_append",
     )
 

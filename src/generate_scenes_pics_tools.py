@@ -1,6 +1,8 @@
 import json
 
+from generation_prompt_builder import compose_generation_prompt
 from generate_image_from_prompt import generate_image_from_prompt
+from input_translation import translate_text_to_english
 from local_storyboard_placeholder import create_storyboard_placeholder
 from prompt_context import build_prompt_context
 from prompt_overrides import apply_override
@@ -10,7 +12,7 @@ from product_reference_images import (
     get_product_visual_structure_json,
     merge_reference_images,
 )
-from prompts_en import generate_scene_pic_system_prompt, generate_scene_pic_user_prompt
+from prompts_en import generate_scene_pic_system_prompt
 
 
 def _extract_scene_root(scene_info: dict) -> tuple[str, list[dict], dict]:
@@ -92,10 +94,21 @@ def generate_storyboard(
                     "key_message": scene.get("key_message", ""),
                 },
             }
+        prompt_composition = compose_generation_prompt(
+            target="image",
+            scene_description=scene.get("scene_description", ""),
+            visuals=scene.get("visuals", {}),
+            scene_audio=scene.get("audio", {}),
+            continuity=continuity,
+            aspect_ratio=aspect_ratio,
+            duration_seconds=int(scene.get("duration_seconds", 8) or 8),
+            meta=meta,
+            hero_product_name=meta.get("hero_product_name") or meta.get("product_name"),
+            product_reference_signature=product_reference_signature,
+            product_visual_structure=product_visual_structure,
+        )
         filled_prompt = apply_override(
-            generate_scene_pic_user_prompt.format(
-                structured_input=json.dumps(model_input, ensure_ascii=False, indent=2)
-            ),
+            prompt_composition["prompt"],
             "scene_pic_user_append",
         )
         system_prompt = apply_override(
@@ -137,6 +150,11 @@ def generate_storyboard(
                 "audio": scene.get("audio", {}),
                 "key_message": scene.get("key_message", ""),
                 "continuity": continuity,
+                "image_prompt_bundle": model_input,
+                "image_prompt_composer_bundle": prompt_composition["bundle"],
+                "image_prompt_fallback": prompt_composition["fallback_prompt"],
+                "image_prompt_mode": prompt_composition["composition_mode"],
+                "image_prompt_model": prompt_composition["composer_model"],
                 "image_prompt": filled_prompt,
                 "image_system_prompt": system_prompt,
                 "image_generation_mode": image_generation_mode,
@@ -150,10 +168,11 @@ def generate_storyboard(
 
 
 def repair_single_pic(pic_path: str, feedback: str, aspect_ratio: str = "9:16"):
+    translated_feedback = translate_text_to_english(feedback)
     filled_prompt = (
         "Refine the uploaded storyboard frame while keeping the same wheelchair product design.\n"
         f"Exact product identity to preserve: {get_product_reference_signature()}\n"
-        f"Requested change: {feedback}"
+        f"Requested change: {translated_feedback}"
     )
     system_prompt = (
         "Edit the uploaded image with minimal change. Keep the same product identity, "

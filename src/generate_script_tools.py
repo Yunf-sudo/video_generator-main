@@ -8,10 +8,12 @@ import uuid
 from dotenv import load_dotenv
 
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
+from input_translation import translate_inputs_to_english, translate_text_to_english
 from prompt_context import build_prompt_context
 from prompt_overrides import apply_override
 from product_reference_images import get_product_visual_structure_json
 from prompts_en import generate_script_system_prompt, generate_script_user_prompt
+from runtime_tunables_config import load_runtime_tunables
 
 try:
     import json_repair
@@ -21,7 +23,11 @@ except ImportError:  # pragma: no cover - optional dependency
 
 load_dotenv()
 
-DEFAULT_SCRIPT_MODEL = os.getenv("SCRIPT_MODEL", DEFAULT_TEXT_MODEL)
+RUNTIME_TUNABLES = load_runtime_tunables()
+DEFAULT_SCRIPT_MODEL = os.getenv(
+    "SCRIPT_MODEL",
+    str(RUNTIME_TUNABLES["model_config"].get("script_model") or DEFAULT_TEXT_MODEL),
+)
 
 SCRIPT_JSON_SCHEMA = {
     "type": "object",
@@ -238,7 +244,8 @@ def _script_json_from_messages(messages: list[dict]) -> tuple[dict, list[dict]]:
 
 
 def generate_scripts(params: dict) -> tuple[dict, list[dict]]:
-    enriched_params = dict(params)
+    source_params = dict(params)
+    enriched_params = translate_inputs_to_english(source_params)
     use_product_reference_images = bool(enriched_params.get("use_product_reference_images", True))
     enriched_params.setdefault(
         "product_visual_structure",
@@ -272,6 +279,7 @@ def generate_scripts(params: dict) -> tuple[dict, list[dict]]:
         "id": str(uuid.uuid4()),
         "version": 1,
         "meta": enriched_params,
+        "source_meta": source_params,
         "scenes": json_ret,
         "history": [],
     }
@@ -279,7 +287,8 @@ def generate_scripts(params: dict) -> tuple[dict, list[dict]]:
 
 
 def repair_script(messages: list[dict], feedback: str) -> tuple[dict, list[dict]]:
-    messages = [*messages, {"role": "user", "content": feedback}]
+    translated_feedback = translate_text_to_english(feedback)
+    messages = [*messages, {"role": "user", "content": translated_feedback}]
     json_ret, messages = _script_json_from_messages(messages)
     with_meta_ret = {
         "id": str(uuid.uuid4()),

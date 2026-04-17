@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 from urllib.parse import urlparse
 
+from runtime_tunables_config import load_runtime_tunables
 from workspace_paths import PROJECT_ROOT, ensure_active_run
 
 try:
@@ -20,6 +21,8 @@ SRC_DIR = Path(__file__).resolve().parent
 CJK_CHAR_RE = re.compile(r"[\u3400-\u9FFF]")
 WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*")
 PAUSE_RE = re.compile(r"[\u3001\u3002\uff0c\uff01\uff1f\uff1b\uff1a,.!?;:]")
+RUNTIME_TUNABLES = load_runtime_tunables()
+SUBTITLE_RUNTIME = RUNTIME_TUNABLES["subtitle_runtime"]
 
 
 def ensure_dir(path: Path | str) -> Path:
@@ -347,10 +350,10 @@ def _write_concat_manifest(video_paths: list[str], output_dir: Path) -> Path:
 def _subtitle_filter_path(subtitle_path: str) -> str:
     resolved = Path(subtitle_path).resolve().as_posix()
     escaped = resolved.replace(":", r"\:").replace("'", r"\'")
-    font_name = os.getenv("SUBTITLE_FONT_NAME", "Cambria")
+    font_name = os.getenv("SUBTITLE_FONT_NAME", str(SUBTITLE_RUNTIME.get("subtitle_font_name") or "Cambria"))
     force_style = (
         f"FontName={font_name},"
-        f"FontSize={os.getenv('SUBTITLE_FONT_SIZE', '13')},"
+        f"FontSize={os.getenv('SUBTITLE_FONT_SIZE', str(SUBTITLE_RUNTIME.get('subtitle_font_size') or '13'))},"
         "Bold=0,"
         "Italic=0,"
         "Alignment=2,"
@@ -360,7 +363,7 @@ def _subtitle_filter_path(subtitle_path: str) -> str:
         "Spacing=0,"
         "MarginL=58,"
         "MarginR=58,"
-        f"MarginV={os.getenv('SUBTITLE_MARGIN_V', '52')},"
+        f"MarginV={os.getenv('SUBTITLE_MARGIN_V', str(SUBTITLE_RUNTIME.get('subtitle_margin_v') or '52'))},"
         "PrimaryColour=&H00F7F5F1,"
         "OutlineColour=&H800F0F0F,"
         "BackColour=&H00000000"

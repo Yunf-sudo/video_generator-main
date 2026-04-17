@@ -14,14 +14,25 @@ import cv2
 import numpy as np
 from dotenv import load_dotenv
 
+from runtime_tunables_config import load_runtime_tunables
 from workspace_paths import ensure_active_run
 
 
 load_dotenv()
 
-GOOGLE_API_BASE_URL = os.getenv("GOOGLE_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip()
-DEFAULT_TEXT_MODEL = os.getenv("TEXT_MODEL", os.getenv("SCRIPT_MODEL", "gemini-2.5-flash"))
-DEFAULT_IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gemini-2.5-flash-image")
+RUNTIME_TUNABLES = load_runtime_tunables()
+GOOGLE_API_BASE_URL = os.getenv(
+    "GOOGLE_API_BASE_URL",
+    str(RUNTIME_TUNABLES["google_api_runtime"].get("google_api_base_url") or "https://generativelanguage.googleapis.com/v1beta"),
+).strip()
+DEFAULT_TEXT_MODEL = os.getenv(
+    "TEXT_MODEL",
+    os.getenv("SCRIPT_MODEL", str(RUNTIME_TUNABLES["model_config"].get("text_model") or "gemini-2.5-flash")),
+)
+DEFAULT_IMAGE_MODEL = os.getenv(
+    "IMAGE_MODEL",
+    str(RUNTIME_TUNABLES["model_config"].get("image_model") or "gemini-2.5-flash-image"),
+)
 
 
 def google_api_key() -> str:

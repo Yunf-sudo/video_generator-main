@@ -184,12 +184,43 @@ outputs/final/clean/anywell_nature_within_reach_clean.mp4
 常见修改入口如下：
 
 - 修改产品外观参考：替换 `白底图/` 下的产品图片，或在网页端“产品简报”页签上传新的参考图。参考图应只用于产品外观识别，不应作为广告画面直接出现。
+- 修改网页端默认参数：优先修改 `configs/streamlit_app_defaults.py`。这个文件带中文注释，适合统一调整产品名称、受众、卖点、场景、提示词补充项、语言和画幅等默认值。
+- 修改运行时调参：优先修改 `configs/runtime_tunables/runtime_settings.py`。这里集中管理模型名、每分钟请求次数、超时、重试次数、字幕样式、是否保留生成视频音轨等底层参数。
+- 修改基础提示词模板：优先修改 `configs/prompt_inputs/prompt_templates.py`。这里集中管理脚本生成、分镜图生成、视频生成、标题描述生成、翻译步骤、prompt 组装器等基础提示词文本。
+- 修改广告业务链路：优先修改 `configs/ad_ops/material_flow_settings.py`。这里集中管理素材库库存阈值、Meta 预上架参数、广告监控规则、频繁下架告警阈值等。
 - 修改受众、卖点、场景数量和目标时长：优先修改 `configs/anywell_freedom_campaign.json`。如果只是临时测试，也可以直接在网页端“产品简报”里改。
 - 修改整体创意方向和合规约束：修改 `prompts/anywell_freedom_campaign.md`。这里适合写品牌调性、禁用内容、镜头偏好和跨场景一致性要求。
 - 修改局部强约束：修改 `prompt_overrides.json`。这里适合放容易被模型忽略的硬性要求，例如不露出后下方电池、不展示折叠形态、不插入白底图闪帧。
 - 修改视频模型、接口地址或密钥：修改 `.env`。真实密钥只能保留在本地，不要提交到仓库。
 - 修改最终交付文件名：运行 `scripts/package_final_outputs.py` 时调整 `--slug` 参数。
 - 修改网页端交互逻辑：主要改 `src/app.py`。根目录 `app.py` 只是 Streamlit 启动入口。
+- 修改中文交互转英文模型输入的翻译逻辑：主要改 `src/input_translation.py`，提示词模板在 `configs/prompt_inputs/prompt_templates.py`。
+- 修改素材库、Meta 预上架和广告监控主链路：主要看 `src/material_library.py`、`src/meta_ads_service.py`、`src/ad_management_agent.py`。
+
+## 广告主链路
+
+当前项目已经补上一条可落地的广告业务骨架：
+
+1. 生成正式成片
+2. 写入本地素材库
+3. 可选：预上架到 Meta 广告组，默认保持 `PAUSED`
+4. 人工审核素材
+5. 广告管理 Agent 自动按库存与规则启停广告、归档成功/失败素材，并输出告警
+
+相关入口：
+
+- `scripts/register_latest_run_material.py`
+  - 把最近一个或指定 run 注册进素材库
+  - 加 `--prelaunch` 会直接预上架到 Meta 并保持关停
+- `scripts/review_material.py`
+  - 更新素材审核状态，例如标记为 `approved`
+- `scripts/run_ad_management_agent.py`
+  - 单次或循环运行广告管理 Agent
+
+工作台里在“导出成片”页签下也加了两个按钮：
+
+- `写入素材库`
+- `写入素材库并预上架 Meta（关停）`
 - 修改视频提交、查询、下载逻辑：主要改 `src/generate_video_tools.py`。
 - 修改最终合成、字幕和音轨处理：主要改 `src/media_pipeline.py`。
 - 修改 AnyWell 批量生成流程：主要改 `src/anywell_campaign.py` 和 `scripts/run_anywell_campaign.py`。
