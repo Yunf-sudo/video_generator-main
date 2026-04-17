@@ -371,9 +371,7 @@ def _inline_asset_from_value(asset_value: str | None) -> dict[str, str] | None:
         return None
 
     normalized = asset_value
-    if Path(asset_value).exists():
-        normalized = _file_to_data_url(asset_value)
-    if normalized and normalized.startswith("data:") and ";base64," in normalized:
+    if normalized.startswith("data:") and ";base64," in normalized:
         header, encoded = normalized.split(",", 1)
         mime_type = header[5:].split(";", 1)[0] or "image/jpeg"
         return {
@@ -389,6 +387,20 @@ def _inline_asset_from_value(asset_value: str | None) -> dict[str, str] | None:
         return {
             "mimeType": mime_type,
             "bytesBase64Encoded": base64.b64encode(payload).decode("utf-8"),
+        }
+
+    try:
+        if Path(asset_value).exists():
+            normalized = _file_to_data_url(asset_value)
+    except OSError:
+        return None
+
+    if normalized and normalized.startswith("data:") and ";base64," in normalized:
+        header, encoded = normalized.split(",", 1)
+        mime_type = header[5:].split(";", 1)[0] or "image/jpeg"
+        return {
+            "mimeType": mime_type,
+            "bytesBase64Encoded": encoded,
         }
     return None
 
