@@ -197,7 +197,6 @@ def _run_label(path: Path) -> str:
     status = " / ".join(marks) if marks else "空记录"
     return f"{path.name} | {updated} | {status}"
 
-
 def load_run_state(run_id: str) -> bool:
     run_id = str(run_id or "").strip()
     run_root = runs_root() / run_id
@@ -251,18 +250,15 @@ def current_run_paths():
     _set_query_run_id(created.run_id)
     return created
 
-
 def create_new_run() -> str:
     created = start_new_run(prefix="ad")
     st.session_state["run_id"] = created.run_id
     _set_query_run_id(created.run_id)
     return created.run_id
 
-
 def persist_run_json(filename: str, payload) -> None:
     current_run_paths()
     write_run_json(filename, payload)
-
 
 def persist_current_brief() -> None:
     active_run = current_run_paths()
@@ -275,7 +271,6 @@ def persist_current_brief() -> None:
         },
     )
 
-
 def reset_generated_state() -> None:
     st.session_state["script"] = None
     st.session_state["script_chat_messages"] = []
@@ -285,7 +280,6 @@ def reset_generated_state() -> None:
     st.session_state["tts_result"] = {}
     st.session_state["final_video_result"] = None
     st.session_state["capcut_result"] = None
-
 
 def init_state() -> None:
     defaults = {
@@ -326,7 +320,6 @@ def init_state() -> None:
         if latest_run_id:
             load_run_state(latest_run_id)
 
-
 def extract_youtube_video_id(value: str) -> str:
     if not value:
         return ""
@@ -338,7 +331,6 @@ def extract_youtube_video_id(value: str) -> str:
         if query_video_id:
             return query_video_id
     return value.strip()
-
 
 def persist_uploaded_files(upload_files) -> list[str]:
     upload_dir = current_run_paths().uploads
@@ -370,7 +362,6 @@ def _material_option_label(item: dict) -> str:
     source_type = str(item.get("source_type") or "-")
     return f"{material_id} | {review_status} | {launch_status} | {source_type}"
 
-
 def _build_material_table_rows(records: list[dict]) -> list[dict]:
     rows: list[dict] = []
     for item in records:
@@ -392,7 +383,6 @@ def _build_material_table_rows(records: list[dict]) -> list[dict]:
             }
         )
     return rows
-
 
 def _filter_material_records(
     records: list[dict],
@@ -434,7 +424,6 @@ def _filter_material_records(
     filtered.sort(key=lambda record: str(record.get("updated_at") or record.get("created_at") or ""), reverse=True)
     return filtered
 
-
 def scene_list(script: dict | None) -> list[dict]:
     if not isinstance(script, dict):
         return []
@@ -449,13 +438,11 @@ def scene_list(script: dict | None) -> list[dict]:
         value = script.get(key)
         if isinstance(value, list):
             return [scene for scene in value if isinstance(scene, dict)]
-    return []
-
+    return [] 
 
 def ordered_storyboard() -> list[dict]:
     frames = [item for item in st.session_state.get("storyboard", []) if isinstance(item, dict)]
     return sorted(frames, key=lambda item: _safe_int(item.get("scene_number") or item.get("scene_id")))
-
 
 def ordered_video_results() -> list[tuple[str, dict]]:
     results = st.session_state.get("video_result", {})
@@ -467,10 +454,8 @@ def ordered_video_results() -> list[tuple[str, dict]]:
         pairs = []
     return sorted(pairs, key=lambda item: _safe_int(item[0]))
 
-
 def ordered_clip_paths() -> list[str]:
     return [item["video_path"] for _, item in ordered_video_results() if item.get("video_path")]
-
 
 def ready_clip_count() -> int:
     return sum(1 for _, item in ordered_video_results() if item.get("video_path"))

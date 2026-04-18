@@ -42,7 +42,7 @@ def load_ad_ops_config() -> dict:
     module = _load_module_from_path(config_path)
     return {
         "config_path": str(config_path),
-        "material_library": _module_value(module, "MATERIAL_LIBRARY", {}),
+        "meta_pool_state": _module_value(module, "META_POOL_STATE", _module_value(module, "MATERIAL_LIBRARY", {})),
         "meta_ads": _module_value(module, "META_ADS", {}),
         "monitor_rules": _module_value(module, "MONITOR_RULES", {}),
     }

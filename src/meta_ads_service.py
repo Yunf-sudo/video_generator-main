@@ -10,12 +10,12 @@ import uuid
 import requests
 
 from ad_ops_config import load_ad_ops_config
-from material_library import append_material_event, load_material_record, update_material_record
+from meta_pool_state import append_material_event, load_material_record, update_material_record
 
 
 AD_OPS_CONFIG = load_ad_ops_config()
 META_ADS_CONFIG = AD_OPS_CONFIG["meta_ads"]
-MATERIAL_LIBRARY_CONFIG = AD_OPS_CONFIG["material_library"]
+META_POOL_STATE_CONFIG = AD_OPS_CONFIG["meta_pool_state"]
 
 
 def _meta_access_token() -> str:
@@ -67,7 +67,7 @@ def _landing_page_url(material: dict[str, Any]) -> str:
 
 
 def _default_initial_status() -> str:
-    return str(MATERIAL_LIBRARY_CONFIG.get("default_meta_ad_status") or "PAUSED").strip().upper()
+    return str(META_POOL_STATE_CONFIG.get("default_meta_ad_status") or "PAUSED").strip().upper()
 
 
 def _dry_run_enabled() -> bool:

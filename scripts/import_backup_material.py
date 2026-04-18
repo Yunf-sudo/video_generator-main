@@ -12,11 +12,12 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from material_library import register_backup_material
+from meta_ads_service import create_paused_ad_for_material
+from meta_pool_state import register_backup_material
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="把手工备用素材导入统一素材库。")
+    parser = argparse.ArgumentParser(description="把手工备用素材直接上传到 Meta 暂存池，并保持关停。")
     parser.add_argument("video_path", help="备用视频文件路径")
     parser.add_argument("--primary-text", required=True, help="主文案")
     parser.add_argument("--headline", required=True, help="标题")
@@ -39,6 +40,7 @@ def main() -> None:
         cta=args.cta,
         tags=[item.strip() for item in args.tags.split(",") if item.strip()],
     )
+    material = create_paused_ad_for_material(str(material.get("material_id") or ""))
     print(json.dumps(material, ensure_ascii=False, indent=2))
 
 

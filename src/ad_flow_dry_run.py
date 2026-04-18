@@ -6,7 +6,7 @@ from typing import Any
 from ad_management_agent import run_agent_once
 from ad_material_pipeline import register_and_prelaunch_run_output
 from local_storyboard_placeholder import create_storyboard_placeholder
-from material_library import delete_material_record, inventory_snapshot, list_material_records, load_material_record, update_material_record
+from meta_pool_state import delete_material_record, inventory_snapshot, list_material_records, load_material_record, update_material_record
 from media_pipeline import assemble_final_video, generate_local_clip
 from workspace_paths import start_new_run, write_run_json
 

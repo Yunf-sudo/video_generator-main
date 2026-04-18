@@ -12,7 +12,7 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ad_material_pipeline import register_and_prelaunch_run_output, register_run_output_to_material_library
+from ad_material_pipeline import register_and_prelaunch_run_output
 from workspace_paths import runs_root
 
 
@@ -31,9 +31,8 @@ def _latest_run_id() -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="把最新或指定 run 的成片注册进素材库，并可选预上架到 Meta。")
+    parser = argparse.ArgumentParser(description="把最新或指定 run 的成片直接上传到 Meta 暂存池，并保持关停。")
     parser.add_argument("--run-id", default="", help="指定 run_id，不传则使用最近一个 run。")
-    parser.add_argument("--prelaunch", action="store_true", help="注册后立即预上架到 Meta，广告默认保持 PAUSED。")
     args = parser.parse_args()
 
     run_id = args.run_id.strip() or _latest_run_id()
@@ -44,22 +43,13 @@ def main() -> None:
     brief = _read_json(meta_dir / "brief.json") or {}
     inputs = brief.get("inputs", {}) if isinstance(brief, dict) else {}
 
-    if args.prelaunch:
-        material = register_and_prelaunch_run_output(
-            run_id=run_id,
-            final_video_result=final_video_result,
-            script=script,
-            ti_intro=ti_intro,
-            source_inputs=inputs,
-        )
-    else:
-        material = register_run_output_to_material_library(
-            run_id=run_id,
-            final_video_result=final_video_result,
-            script=script,
-            ti_intro=ti_intro,
-            source_inputs=inputs,
-        )
+    material = register_and_prelaunch_run_output(
+        run_id=run_id,
+        final_video_result=final_video_result,
+        script=script,
+        ti_intro=ti_intro,
+        source_inputs=inputs,
+    )
     print(json.dumps(material, ensure_ascii=False, indent=2))
 
 

@@ -10,7 +10,7 @@ from typing import Any
 import requests
 
 from ad_ops_config import load_ad_ops_config
-from material_library import (
+from meta_pool_state import (
     append_material_event,
     archive_material,
     build_archive_feature_summary,
@@ -29,7 +29,7 @@ from workspace_paths import PROJECT_ROOT, ensure_dir
 AD_OPS_CONFIG = load_ad_ops_config()
 META_ADS_CONFIG = AD_OPS_CONFIG["meta_ads"]
 MONITOR_RULES = AD_OPS_CONFIG["monitor_rules"]
-MATERIAL_LIBRARY_CONFIG = AD_OPS_CONFIG["material_library"]
+META_POOL_STATE_CONFIG = AD_OPS_CONFIG["meta_pool_state"]
 
 
 def _dry_run_enabled() -> bool:
@@ -215,9 +215,9 @@ def _check_frequent_pause_warning(state: dict[str, Any]) -> None:
 
 def _maybe_archive_material(record: dict[str, Any], archive_kind: str, reason: str, performance: dict[str, Any]) -> None:
     bucket = (
-        str(MATERIAL_LIBRARY_CONFIG.get("failed_archive_bucket") or "failed_ads")
+        str(META_POOL_STATE_CONFIG.get("failed_archive_bucket") or "failed_ads")
         if archive_kind == "failed"
-        else str(MATERIAL_LIBRARY_CONFIG.get("success_archive_bucket") or "success_ads")
+        else str(META_POOL_STATE_CONFIG.get("success_archive_bucket") or "success_ads")
     )
     archive_material(
         str(record.get("material_id") or ""),

@@ -5,9 +5,9 @@ from __future__ import annotations
 # 不放 Access Token。密钥一律走环境变量。
 
 
-MATERIAL_LIBRARY = {
+META_POOL_STATE = {
     # 本地状态目录。这里只保存轻量状态、告警和复盘结果，不再额外复制视频素材。
-    "library_root": "generated/ad_ops_state",
+    "state_root": "generated/ad_ops_state",
     # 是否把视频文件再复制一份到本地状态目录。
     # 你当前诉求是不搭建额外素材库，所以默认关闭。
     "copy_assets_to_workspace": False,

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from material_library import register_generated_material
+from meta_pool_state import register_generated_material
 from meta_ads_service import create_paused_ad_for_material
 
 
-def register_run_output_to_material_library(
+def _register_run_output_to_meta_pool_state(
     *,
     run_id: str,
     final_video_result: dict[str, Any] | None,
@@ -35,7 +35,7 @@ def register_and_prelaunch_run_output(
     ti_intro: dict[str, Any] | None,
     source_inputs: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    material = register_run_output_to_material_library(
+    material = _register_run_output_to_meta_pool_state(
         run_id=run_id,
         final_video_result=final_video_result,
         script=script,

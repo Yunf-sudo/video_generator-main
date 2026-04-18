@@ -13,15 +13,19 @@ from workspace_paths import PROJECT_ROOT, ensure_dir
 
 
 AD_OPS_CONFIG = load_ad_ops_config()
-MATERIAL_LIBRARY_CONFIG = AD_OPS_CONFIG["material_library"]
+META_POOL_STATE_CONFIG = AD_OPS_CONFIG["meta_pool_state"]
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _library_root() -> Path:
-    configured = str(MATERIAL_LIBRARY_CONFIG.get("library_root") or "generated/ad_ops_state").strip()
+def _state_root() -> Path:
+    configured = str(
+        META_POOL_STATE_CONFIG.get("state_root")
+        or META_POOL_STATE_CONFIG.get("library_root")
+        or "generated/ad_ops_state"
+    ).strip()
     root = Path(configured)
     if not root.is_absolute():
         root = (PROJECT_ROOT / root).resolve()
@@ -29,7 +33,7 @@ def _library_root() -> Path:
 
 
 @dataclass(frozen=True)
-class MaterialLibraryPaths:
+class MetaPoolStatePaths:
     root: Path
     materials: Path
     assets: Path
@@ -38,18 +42,18 @@ class MaterialLibraryPaths:
     reports: Path
 
 
-def material_library_paths() -> MaterialLibraryPaths:
-    root = _library_root()
+def meta_pool_state_paths() -> MetaPoolStatePaths:
+    root = _state_root()
     materials = ensure_dir(root / "materials")
     assets = root / "assets"
-    if bool(MATERIAL_LIBRARY_CONFIG.get("copy_assets_to_workspace", False)):
+    if bool(META_POOL_STATE_CONFIG.get("copy_assets_to_workspace", False)):
         assets = ensure_dir(assets)
     archives = ensure_dir(root / "archives")
-    alerts = ensure_dir(root / str(MATERIAL_LIBRARY_CONFIG.get("alerts_bucket") or "alerts"))
+    alerts = ensure_dir(root / str(META_POOL_STATE_CONFIG.get("alerts_bucket") or "alerts"))
     reports = ensure_dir(root / "reports")
-    ensure_dir(archives / str(MATERIAL_LIBRARY_CONFIG.get("success_archive_bucket") or "success_ads"))
-    ensure_dir(archives / str(MATERIAL_LIBRARY_CONFIG.get("failed_archive_bucket") or "failed_ads"))
-    return MaterialLibraryPaths(
+    ensure_dir(archives / str(META_POOL_STATE_CONFIG.get("success_archive_bucket") or "success_ads"))
+    ensure_dir(archives / str(META_POOL_STATE_CONFIG.get("failed_archive_bucket") or "failed_ads"))
+    return MetaPoolStatePaths(
         root=root,
         materials=materials,
         assets=assets,
@@ -60,17 +64,17 @@ def material_library_paths() -> MaterialLibraryPaths:
 
 
 def _material_record_path(material_id: str) -> Path:
-    return material_library_paths().materials / f"{material_id}.json"
+    return meta_pool_state_paths().materials / f"{material_id}.json"
 
 
 def _copy_asset_to_library(source_path: str, material_id: str, suffix_hint: str = "") -> str:
     source = Path(source_path).resolve()
     if not source.exists():
         return ""
-    if not bool(MATERIAL_LIBRARY_CONFIG.get("copy_assets_to_workspace", False)):
+    if not bool(META_POOL_STATE_CONFIG.get("copy_assets_to_workspace", False)):
         return str(source)
     ext = source.suffix or suffix_hint or ".bin"
-    target = material_library_paths().assets / f"{material_id}{ext}"
+    target = meta_pool_state_paths().assets / f"{material_id}{ext}"
     if source.resolve() != target.resolve():
         shutil.copy2(source, target)
     return str(target)
@@ -97,7 +101,7 @@ def delete_material_record(material_id: str) -> None:
             Path(asset_path).unlink(missing_ok=True)
         path.unlink(missing_ok=True)
 
-        for archive_path in material_library_paths().archives.rglob(f"{material_id}.json"):
+        for archive_path in meta_pool_state_paths().archives.rglob(f"{material_id}.json"):
             archive_path.unlink(missing_ok=True)
 
 
@@ -110,7 +114,7 @@ def load_material_record(material_id: str) -> dict[str, Any]:
 
 def list_material_records() -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    for path in sorted(material_library_paths().materials.glob("*.json")):
+    for path in sorted(meta_pool_state_paths().materials.glob("*.json")):
         try:
             records.append(json.loads(path.read_text(encoding="utf-8")))
         except Exception:
@@ -157,8 +161,8 @@ def inventory_snapshot() -> dict[str, Any]:
         for item in records
         if str(item.get("launch_status") or "") in {"ready_for_launch", "prelaunched_paused"}
     ]
-    min_ready = int(MATERIAL_LIBRARY_CONFIG.get("min_ready_materials") or 3)
-    target_ready = int(MATERIAL_LIBRARY_CONFIG.get("target_ready_materials") or 8)
+    min_ready = int(META_POOL_STATE_CONFIG.get("min_ready_materials") or 3)
+    target_ready = int(META_POOL_STATE_CONFIG.get("target_ready_materials") or 8)
     shortage = max(0, target_ready - len(ready_records))
     return {
         "total_materials": len(records),
@@ -184,8 +188,8 @@ def material_status_summary() -> dict[str, Any]:
         "archived_success": 0,
         "archived_failed": 0,
     }
-    success_bucket = str(MATERIAL_LIBRARY_CONFIG.get("success_archive_bucket") or "success_ads")
-    failed_bucket = str(MATERIAL_LIBRARY_CONFIG.get("failed_archive_bucket") or "failed_ads")
+    success_bucket = str(META_POOL_STATE_CONFIG.get("success_archive_bucket") or "success_ads")
+    failed_bucket = str(META_POOL_STATE_CONFIG.get("failed_archive_bucket") or "failed_ads")
     for item in records:
         review_status = str(item.get("review_status") or "")
         launch_status = str(item.get("launch_status") or "")
@@ -216,7 +220,7 @@ def material_status_summary() -> dict[str, Any]:
 
 def create_alert(alert_type: str, message: str, payload: dict[str, Any] | None = None) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    target = material_library_paths().alerts / f"{timestamp}_{alert_type}.json"
+    target = meta_pool_state_paths().alerts / f"{timestamp}_{alert_type}.json"
     target.write_text(
         json.dumps(
             {
@@ -235,7 +239,7 @@ def create_alert(alert_type: str, message: str, payload: dict[str, Any] | None =
 
 def list_recent_alerts(limit: int = 10) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
-    for path in sorted(material_library_paths().alerts.glob("*.json"), reverse=True):
+    for path in sorted(meta_pool_state_paths().alerts.glob("*.json"), reverse=True):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["_path"] = str(path)
@@ -263,7 +267,7 @@ def archive_material(
     record.update(patch)
     record["updated_at"] = _utc_now_iso()
     save_material_record(record)
-    target = material_library_paths().archives / archive_bucket / f"{material_id}.json"
+    target = meta_pool_state_paths().archives / archive_bucket / f"{material_id}.json"
     target.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
     return record
 
@@ -315,7 +319,7 @@ def register_generated_material(
     source_meta = script.get("source_meta", {}) if isinstance(script, dict) else {}
     primary_text = _derive_primary_text(ti_intro, script)
     headline = title or str(meta.get("product_name") or source_meta.get("product_name") or "Auto Generated Ad").strip()
-    review_status = str(MATERIAL_LIBRARY_CONFIG.get("default_review_status") or "pending_review")
+    review_status = str(META_POOL_STATE_CONFIG.get("default_review_status") or "pending_review")
 
     record = {
         "material_id": material_id,
@@ -325,7 +329,7 @@ def register_generated_material(
         "asset_type": "video",
         "run_id": run_id,
         "storage_uri": copied_video_path,
-        "managed_asset": bool(MATERIAL_LIBRARY_CONFIG.get("copy_assets_to_workspace", False)),
+        "managed_asset": bool(META_POOL_STATE_CONFIG.get("copy_assets_to_workspace", False)),
         "thumbnail_uri": thumbnail_path,
         "review_status": review_status,
         "launch_status": "ready_for_launch",
@@ -391,7 +395,7 @@ def register_backup_material(
         raise ValueError("缺少备用素材视频路径。")
     material_id = f"bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     copied_video_path = _copy_asset_to_library(source, material_id, ".mp4")
-    review_status = str(MATERIAL_LIBRARY_CONFIG.get("default_review_status") or "pending_review")
+    review_status = str(META_POOL_STATE_CONFIG.get("default_review_status") or "pending_review")
     record = {
         "material_id": material_id,
         "created_at": _utc_now_iso(),
@@ -400,7 +404,7 @@ def register_backup_material(
         "asset_type": "video",
         "run_id": "",
         "storage_uri": copied_video_path,
-        "managed_asset": bool(MATERIAL_LIBRARY_CONFIG.get("copy_assets_to_workspace", False)),
+        "managed_asset": bool(META_POOL_STATE_CONFIG.get("copy_assets_to_workspace", False)),
         "thumbnail_uri": "",
         "review_status": review_status,
         "launch_status": "ready_for_launch",
@@ -449,7 +453,7 @@ def register_backup_material(
 
 
 def pending_prelaunch_materials(limit: int = 20) -> list[dict[str, Any]]:
-    allow_before_review = bool(MATERIAL_LIBRARY_CONFIG.get("allow_prelaunch_before_manual_review", True))
+    allow_before_review = bool(META_POOL_STATE_CONFIG.get("allow_prelaunch_before_manual_review", True))
     records = list_material_records()
     pending: list[dict[str, Any]] = []
     for item in records:
@@ -482,8 +486,8 @@ def paused_material_candidates_for_activation(adset_id: str, limit: int = 20) ->
 
 def build_archive_feature_summary() -> dict[str, Any]:
     records = list_material_records()
-    success = [item for item in records if str(item.get("archive_bucket") or "") == str(MATERIAL_LIBRARY_CONFIG.get("success_archive_bucket") or "success_ads")]
-    failed = [item for item in records if str(item.get("archive_bucket") or "") == str(MATERIAL_LIBRARY_CONFIG.get("failed_archive_bucket") or "failed_ads")]
+    success = [item for item in records if str(item.get("archive_bucket") or "") == str(META_POOL_STATE_CONFIG.get("success_archive_bucket") or "success_ads")]
+    failed = [item for item in records if str(item.get("archive_bucket") or "") == str(META_POOL_STATE_CONFIG.get("failed_archive_bucket") or "failed_ads")]
 
     def _top_values(items: list[dict[str, Any]], key: str) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -503,6 +507,6 @@ def build_archive_feature_summary() -> dict[str, Any]:
         "success_markets": _top_values(success, "target_market"),
         "failed_markets": _top_values(failed, "target_market"),
     }
-    target = material_library_paths().reports / "archive_feature_summary.json"
+    target = meta_pool_state_paths().reports / "archive_feature_summary.json"
     target.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
