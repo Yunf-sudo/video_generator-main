@@ -460,14 +460,11 @@ def ordered_clip_paths() -> list[str]:
 def ready_clip_count() -> int:
     return sum(1 for _, item in ordered_video_results() if item.get("video_path"))
 
-
 def remote_clip_count() -> int:
     return sum(1 for _, item in ordered_video_results() if item.get("generation_mode") == "remote")
 
-
 def local_preview_clip_count() -> int:
     return sum(1 for _, item in ordered_video_results() if item.get("generation_mode") == "local")
-
 
 def infer_active_step() -> str:
     final_result = st.session_state.get("final_video_result")
