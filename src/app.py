@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 import streamlit as st
 
-from ad_material_pipeline import register_and_prelaunch_run_output
+from ad_material_pipeline import stage_run_output_to_meta
 from ad_flow_dry_run import run_full_dry_run_test
 from ad_management_agent import run_agent_once
 from ad_ops_config import load_ad_ops_config
@@ -19,7 +19,7 @@ from generate_scenes_pics_tools import generate_storyboard, repair_single_pic
 from generate_script_tools import generate_scripts, repair_script
 from generate_tts_audio import generate_tts_audio
 from generate_video_tools import generate_video_from_image_path, get_video_path_from_video_id
-from material_library import (
+from meta_pool_state import (
     build_archive_feature_summary,
     inventory_snapshot,
     list_recent_alerts,
@@ -29,6 +29,13 @@ from material_library import (
     update_material_record,
 )
 from media_pipeline import assemble_final_video, build_scene_audio_duration_map
+from prompt_strategy_playbook import (
+    compose_prompt_editor_fields,
+    error_example_labels,
+    optimization_labels,
+    selected_error_examples,
+    selected_optimization_directions,
+)
 from quick_cut import capcut_service_status, get_capcut_api_url, quick_cut_video, upload_all_videos_to_rustfs
 from prompt_templates_config import load_prompt_templates
 from runtime_tunables_config import load_runtime_tunables
@@ -84,12 +91,83 @@ RECOVERABLE_META_FILES = (
 st.set_page_config(page_title="电动轮椅广告工作台", layout="wide")
 
 
+PROMPT_MANUAL_FALLBACKS = {
+    "prompt_scene_description_manual": "prompt_scene_description_notes",
+    "prompt_special_emphasis_manual": "prompt_special_emphasis",
+    "prompt_error_notes_manual": "prompt_error_notes",
+}
+
+
 def _coerce_dict(value):
     return value if isinstance(value, dict) else {}
 
 
 def _coerce_list(value):
     return value if isinstance(value, list) else []
+
+
+def _brief_widget_key(name: str) -> str:
+    run_id = str(st.session_state.get("run_id") or "draft").strip() or "draft"
+    return f"brief_{run_id}_{name}"
+
+
+def _prompt_manual_default(field_name: str) -> str:
+    inputs = _coerce_dict(st.session_state.get("inputs"))
+    fallback_key = PROMPT_MANUAL_FALLBACKS.get(field_name, "")
+    if isinstance(inputs.get(field_name), str) and str(inputs.get(field_name) or "").strip():
+        return str(inputs.get(field_name) or "")
+    if fallback_key:
+        return str(inputs.get(fallback_key) or "")
+    return ""
+
+
+def _build_prompt_editor_preview(
+    optimization_selection: list[str] | None,
+    error_selection: list[str] | None,
+    manual_scene_notes: str,
+    manual_special_emphasis: str,
+    manual_error_notes: str,
+) -> dict[str, str]:
+    return compose_prompt_editor_fields(
+        optimization_labels_selected=optimization_selection or [],
+        error_labels_selected=error_selection or [],
+        manual_scene_notes=manual_scene_notes,
+        manual_special_emphasis=manual_special_emphasis,
+        manual_error_notes=manual_error_notes,
+    )
+
+
+def _render_meta_stage_report(report: dict | None) -> None:
+    payload = _coerce_dict(report)
+    if not payload:
+        return
+
+    material_id = str(payload.get("material_id") or "")
+    status = str(payload.get("status") or "")
+    failed_step = str(payload.get("failed_step") or "")
+    meta_mapping = _coerce_dict(payload.get("meta_mapping"))
+    steps = [item for item in _coerce_list(payload.get("steps")) if isinstance(item, dict)]
+
+    if status == "success":
+        st.success(f"Meta 链路已跑通：素材 {material_id} 已创建到广告层。")
+    elif status == "partial_failure":
+        st.warning(f"Meta 链路在 {failed_step or '未知步骤'} 卡住，但前置成功步骤已经保留。")
+
+    for item in steps:
+        step_status = str(item.get("status") or "")
+        label = str(item.get("label") or item.get("step") or "步骤")
+        message = str(item.get("message") or "")
+        value = str(item.get("value") or "").strip()
+        prefix = "[成功]" if step_status == "success" else "[失败]"
+        st.write(f"{prefix} {label}")
+        if message:
+            st.caption(message)
+        if value:
+            st.code(value, language="text")
+
+    if meta_mapping:
+        st.markdown("**当前 Meta 映射**")
+        st.json(meta_mapping)
 
 
 def _get_query_run_id() -> str:
@@ -236,6 +314,7 @@ def load_run_state(run_id: str) -> bool:
             write_run_json("final_video_result.json", final_video_result)
     st.session_state["final_video_result"] = final_video_result
     st.session_state["capcut_result"] = _read_run_json(run_id, "capcut_result.json")
+    st.session_state["last_meta_stage_result"] = None
     st.session_state["active_step"] = infer_active_step()
     return True
 
@@ -280,6 +359,7 @@ def reset_generated_state() -> None:
     st.session_state["tts_result"] = {}
     st.session_state["final_video_result"] = None
     st.session_state["capcut_result"] = None
+    st.session_state["last_meta_stage_result"] = None
 
 def init_state() -> None:
     defaults = {
@@ -299,6 +379,7 @@ def init_state() -> None:
         "tts_result": {},
         "final_video_result": None,
         "capcut_result": None,
+        "last_meta_stage_result": None,
         "last_agent_run_result": None,
         "last_dry_run_result": None,
         "archive_feature_summary": None,
@@ -889,83 +970,197 @@ def render_brief_tab() -> None:
         if st.session_state.get("reference_style"):
             st.text_area("当前风格参考", value=st.session_state["reference_style"], height=220)
 
-    with st.form("brief_form"):
-        left, right = st.columns(2)
-        with left:
-            product_name = st.text_input("可编辑 | 产品名称", value=st.session_state["inputs"]["product_name"])
-            product_category = st.text_input("可编辑 | 产品品类", value=st.session_state["inputs"]["product_category"])
-            campaign_goal = st.text_area("可编辑 | 投放目标", value=st.session_state["inputs"]["campaign_goal"], height=90)
-            target_market = st.text_input("可编辑 | 目标市场", value=st.session_state["inputs"]["target_market"])
-            target_audience = st.text_area("可编辑 | 目标受众", value=st.session_state["inputs"]["target_audience"], height=110)
-            language = st.selectbox(
-                "可编辑 | 输出语言",
-                options=LANGUAGE_OPTIONS,
-                index=LANGUAGE_OPTIONS.index(st.session_state["inputs"]["language"])
-                if st.session_state["inputs"]["language"] in LANGUAGE_OPTIONS
-                else 0,
-            )
-            desired_scene_count = st.slider(
-                "可编辑 | 目标场景数",
-                min_value=4,
-                max_value=6,
-                value=int(st.session_state["inputs"]["desired_scene_count"]),
-            )
-            preferred_runtime_seconds = st.slider(
-                "可编辑 | 目标总时长（秒）",
-                min_value=20,
-                max_value=36,
-                value=int(st.session_state["inputs"]["preferred_runtime_seconds"]),
-            )
-        with right:
-            core_selling_points = st.text_area("可编辑 | 核心卖点", value=st.session_state["inputs"]["core_selling_points"], height=120)
-            use_scenarios = st.text_area("可编辑 | 使用场景", value=st.session_state["inputs"]["use_scenarios"], height=120)
-            style_preset = st.selectbox(
-                "可编辑 | 风格模板",
-                options=list(STYLE_PRESETS.keys()),
-                index=list(STYLE_PRESETS.keys()).index(st.session_state["inputs"]["style_preset"]),
-            )
-            custom_style_notes = st.text_area(
-                "可编辑 | 自定义风格说明",
-                value=st.session_state["inputs"]["custom_style_notes"],
-                height=100,
-            )
-            style_tone = st.text_input("可编辑 | 风格语气", value=st.session_state["inputs"]["style_tone"])
-            consistency_anchor = st.text_area("可编辑 | 产品一致性锚点", value=st.session_state["inputs"]["consistency_anchor"], height=110)
-            additional_info = st.text_area("可编辑 | 补充说明", value=st.session_state["inputs"]["additional_info"], height=110)
-            video_orientation = st.selectbox(
-                "可编辑 | 画幅比例",
-                options=VIDEO_ORIENTATION_OPTIONS,
-                index=VIDEO_ORIENTATION_OPTIONS.index(st.session_state["inputs"]["video_orientation"])
-                if st.session_state["inputs"]["video_orientation"] in VIDEO_ORIENTATION_OPTIONS
-                else 0,
-            )
-
-        upload_files = st.file_uploader(
-            "可编辑 | 上传轮椅参考图，可多张",
-            type=["png", "jpg", "jpeg", "webp"],
-            accept_multiple_files=True,
+    input_left, input_right = st.columns(2)
+    with input_left:
+        product_name = st.text_input(
+            "可编辑 | 产品名称",
+            value=st.session_state["inputs"]["product_name"],
+            key=_brief_widget_key("product_name"),
+        )
+        product_category = st.text_input(
+            "可编辑 | 产品品类",
+            value=st.session_state["inputs"]["product_category"],
+            key=_brief_widget_key("product_category"),
+        )
+        campaign_goal = st.text_area(
+            "可编辑 | 投放目标",
+            value=st.session_state["inputs"]["campaign_goal"],
+            height=90,
+            key=_brief_widget_key("campaign_goal"),
+        )
+        target_market = st.text_input(
+            "可编辑 | 目标市场",
+            value=st.session_state["inputs"]["target_market"],
+            key=_brief_widget_key("target_market"),
+        )
+        target_audience = st.text_area(
+            "可编辑 | 目标受众",
+            value=st.session_state["inputs"]["target_audience"],
+            height=110,
+            key=_brief_widget_key("target_audience"),
+        )
+        language = st.selectbox(
+            "可编辑 | 输出语言",
+            options=LANGUAGE_OPTIONS,
+            index=LANGUAGE_OPTIONS.index(st.session_state["inputs"]["language"])
+            if st.session_state["inputs"]["language"] in LANGUAGE_OPTIONS
+            else 0,
+            key=_brief_widget_key("language"),
+        )
+        desired_scene_count = st.slider(
+            "可编辑 | 目标场景数",
+            min_value=4,
+            max_value=6,
+            value=int(st.session_state["inputs"]["desired_scene_count"]),
+            key=_brief_widget_key("desired_scene_count"),
+        )
+        preferred_runtime_seconds = st.slider(
+            "可编辑 | 目标总时长（秒）",
+            min_value=20,
+            max_value=36,
+            value=int(st.session_state["inputs"]["preferred_runtime_seconds"]),
+            key=_brief_widget_key("preferred_runtime_seconds"),
+        )
+    with input_right:
+        core_selling_points = st.text_area(
+            "可编辑 | 核心卖点",
+            value=st.session_state["inputs"]["core_selling_points"],
+            height=120,
+            key=_brief_widget_key("core_selling_points"),
+        )
+        use_scenarios = st.text_area(
+            "可编辑 | 使用场景",
+            value=st.session_state["inputs"]["use_scenarios"],
+            height=120,
+            key=_brief_widget_key("use_scenarios"),
+        )
+        style_preset = st.selectbox(
+            "可编辑 | 风格模板",
+            options=list(STYLE_PRESETS.keys()),
+            index=list(STYLE_PRESETS.keys()).index(st.session_state["inputs"]["style_preset"]),
+            key=_brief_widget_key("style_preset"),
+        )
+        custom_style_notes = st.text_area(
+            "可编辑 | 自定义风格说明",
+            value=st.session_state["inputs"]["custom_style_notes"],
+            height=100,
+            key=_brief_widget_key("custom_style_notes"),
+        )
+        style_tone = st.text_input(
+            "可编辑 | 风格语气",
+            value=st.session_state["inputs"]["style_tone"],
+            key=_brief_widget_key("style_tone"),
+        )
+        consistency_anchor = st.text_area(
+            "可编辑 | 产品一致性锚点",
+            value=st.session_state["inputs"]["consistency_anchor"],
+            height=110,
+            key=_brief_widget_key("consistency_anchor"),
+        )
+        additional_info = st.text_area(
+            "可编辑 | 补充说明",
+            value=st.session_state["inputs"]["additional_info"],
+            height=110,
+            key=_brief_widget_key("additional_info"),
+        )
+        video_orientation = st.selectbox(
+            "可编辑 | 画幅比例",
+            options=VIDEO_ORIENTATION_OPTIONS,
+            index=VIDEO_ORIENTATION_OPTIONS.index(st.session_state["inputs"]["video_orientation"])
+            if st.session_state["inputs"]["video_orientation"] in VIDEO_ORIENTATION_OPTIONS
+            else 0,
+            key=_brief_widget_key("video_orientation"),
         )
 
-        with st.expander("高级提示词组件", expanded=False):
-            prompt_scene_description_notes = st.text_area(
-                "可编辑 | 场景描述补充",
-                value=st.session_state["inputs"].get("prompt_scene_description_notes", ""),
-                height=110,
-                help="这里补充全局场景描述倾向，后续会和每个场景脚本一起打包给 AI 整合。",
-            )
-            prompt_special_emphasis = st.text_area(
-                "可编辑 | 特殊点强调",
-                value=st.session_state["inputs"].get("prompt_special_emphasis", ""),
-                height=110,
-                help="这里写想重点强调的卖点、人物状态、构图倾向或镜头重点。",
-            )
-            prompt_error_notes = st.text_area(
-                "可编辑 | 易出错点补充",
-                value=st.session_state["inputs"].get("prompt_error_notes", ""),
-                height=130,
-                help="这里补充模型常犯错误。系统还会自动叠加独立错误模块里的默认约束。",
-            )
-        submitted = st.form_submit_button("保存简报")
+    upload_files = st.file_uploader(
+        "可编辑 | 上传轮椅参考图，可多张",
+        type=["png", "jpg", "jpeg", "webp"],
+        accept_multiple_files=True,
+        key=_brief_widget_key("reference_images"),
+    )
+
+    st.markdown("### 提示词策略台")
+    st.write("先选策略，再补一句人话。系统会自动整理成后续脚本、分镜和视频共用的提示词字段。")
+    strategy_cols = st.columns([1, 1])
+    with strategy_cols[0]:
+        optimization_selection = st.multiselect(
+            "优化方向",
+            options=optimization_labels(),
+            default=_coerce_list(st.session_state["inputs"].get("prompt_optimization_directions")),
+            key=_brief_widget_key("prompt_optimization_directions"),
+            help="用于快速确定这条视频更偏冷启动测试、真实性、卖点展示还是情绪转化。",
+        )
+        if optimization_selection:
+            for item in selected_optimization_directions(optimization_selection):
+                with st.container(border=True):
+                    st.markdown(f"**{item['label']}**")
+                    st.caption(item["description"])
+        else:
+            st.info("至少选 1 个优化方向，后面的建议会更明确。")
+
+    with strategy_cols[1]:
+        error_selection = st.multiselect(
+            "错误实例",
+            options=error_example_labels(),
+            default=_coerce_list(st.session_state["inputs"].get("prompt_error_examples")),
+            key=_brief_widget_key("prompt_error_examples"),
+            help="把你最怕出现的问题显式写进去，系统会自动转成错误约束。",
+        )
+        if error_selection:
+            for item in selected_error_examples(error_selection):
+                with st.container(border=True):
+                    st.markdown(f"**{item['label']}**")
+                    st.caption(f"常见问题：{item['symptom']}")
+                    st.code(item["prompt_fix"], language="text")
+        else:
+            st.info("如果模型常在某些地方翻车，直接在这里勾出来。")
+
+    manual_cols = st.columns(3)
+    with manual_cols[0]:
+        prompt_scene_description_manual = st.text_area(
+            "手动补充 | 场景路线和世界观",
+            value=_prompt_manual_default("prompt_scene_description_manual"),
+            height=140,
+            key=_brief_widget_key("prompt_scene_description_manual"),
+            help="这里补你想强塞给所有场景的路线感、空间关系和整体叙事。",
+        )
+    with manual_cols[1]:
+        prompt_special_emphasis_manual = st.text_area(
+            "手动补充 | 重点卖点和镜头关注点",
+            value=_prompt_manual_default("prompt_special_emphasis_manual"),
+            height=140,
+            key=_brief_widget_key("prompt_special_emphasis_manual"),
+            help="这里补最想让模型重视的产品可见度、人物状态和转化重点。",
+        )
+    with manual_cols[2]:
+        prompt_error_notes_manual = st.text_area(
+            "手动补充 | 易出错点",
+            value=_prompt_manual_default("prompt_error_notes_manual"),
+            height=140,
+            key=_brief_widget_key("prompt_error_notes_manual"),
+            help="这里补项目特有的翻车点。系统还会叠加代码里的默认错误约束。",
+        )
+
+    prompt_preview = _build_prompt_editor_preview(
+        optimization_selection=optimization_selection,
+        error_selection=error_selection,
+        manual_scene_notes=prompt_scene_description_manual,
+        manual_special_emphasis=prompt_special_emphasis_manual,
+        manual_error_notes=prompt_error_notes_manual,
+    )
+    preview_cols = st.columns(3)
+    with preview_cols[0]:
+        st.markdown("**系统最终写入 | 场景描述补充**")
+        st.code(prompt_preview["prompt_scene_description_notes"] or "未补充", language="text")
+    with preview_cols[1]:
+        st.markdown("**系统最终写入 | 特殊点强调**")
+        st.code(prompt_preview["prompt_special_emphasis"] or "未补充", language="text")
+    with preview_cols[2]:
+        st.markdown("**系统最终写入 | 错误约束补充**")
+        st.code(prompt_preview["prompt_error_notes"] or "未补充", language="text")
+    st.caption("保存后会把上面三块最终文本写入正式简报字段，生成脚本、分镜和视频时统一复用。")
+
+    submitted = st.button("保存简报", use_container_width=True, key=_brief_widget_key("save"))
 
     if submitted:
         run_id = create_new_run()
@@ -982,16 +1177,25 @@ def render_brief_tab() -> None:
             "style_tone": style_tone,
             "consistency_anchor": consistency_anchor,
             "additional_info": additional_info,
-            "prompt_scene_description_notes": prompt_scene_description_notes,
-            "prompt_special_emphasis": prompt_special_emphasis,
-            "prompt_error_notes": prompt_error_notes,
+            "prompt_scene_description_notes": prompt_preview["prompt_scene_description_notes"],
+            "prompt_special_emphasis": prompt_preview["prompt_special_emphasis"],
+            "prompt_error_notes": prompt_preview["prompt_error_notes"],
+            "prompt_scene_description_manual": prompt_scene_description_manual,
+            "prompt_special_emphasis_manual": prompt_special_emphasis_manual,
+            "prompt_error_notes_manual": prompt_error_notes_manual,
+            "prompt_optimization_directions": optimization_selection,
+            "prompt_error_examples": error_selection,
             "language": language,
             "video_orientation": video_orientation,
             "desired_scene_count": desired_scene_count,
             "preferred_runtime_seconds": preferred_runtime_seconds,
             "reference_style": st.session_state.get("reference_style", ""),
         }
-        st.session_state["reference_image_paths"] = persist_uploaded_files(upload_files) if upload_files else []
+        st.session_state["reference_image_paths"] = (
+            persist_uploaded_files(upload_files)
+            if upload_files
+            else _coerce_list(st.session_state.get("reference_image_paths"))
+        )
         st.session_state["active_step"] = "广告脚本"
         reset_generated_state()
         persist_run_json(
@@ -1271,12 +1475,41 @@ def render_export_tab() -> None:
         st.video(final_result["video_path"])
         st.caption(final_result["video_path"])
         st.markdown("### 下一步")
-        st.write("正式成片已经准备好。上传到 Meta 暂存池、关停预上架、审核、Agent 扫描和 Dry Run 测试现在统一放在“广告运营”页签里，方便集中处理。")
-        if st.button("进入广告运营", use_container_width=True):
+        st.write("正式成片已经准备好。这里可以直接把当前 Run 一键接入 Meta；如果中途被平台限制拦住，也会明确告诉你卡在哪一步。")
+        next_cols = st.columns(2)
+        if next_cols[0].button("当前 Run 一键上传到 Meta", use_container_width=True):
+            with st.spinner("正在把当前成片接入 Meta 链路..."):
+                try:
+                    upload_report = stage_run_output_to_meta(
+                        run_id=str(st.session_state.get("run_id") or ""),
+                        final_video_result=final_result,
+                        script=st.session_state.get("script"),
+                        ti_intro=st.session_state.get("ti_intro"),
+                        source_inputs=st.session_state.get("inputs"),
+                    )
+                    st.session_state["last_meta_stage_result"] = upload_report
+                except Exception as exc:
+                    st.session_state["last_meta_stage_result"] = {
+                        "status": "partial_failure",
+                        "material_id": "",
+                        "failed_step": "register",
+                        "steps": [
+                            {
+                                "step": "register",
+                                "label": "写入 Meta 暂存池",
+                                "status": "failed",
+                                "message": str(exc),
+                            }
+                        ],
+                        "meta_mapping": {},
+                    }
+        if next_cols[1].button("进入广告运营", use_container_width=True):
             st.session_state["active_step"] = "广告运营"
             st.session_state["active_step_nav"] = "广告运营"
             st.session_state["active_step_nav_synced"] = "广告运营"
             st.rerun()
+
+        _render_meta_stage_report(st.session_state.get("last_meta_stage_result"))
 
     with st.expander("可选：导入剪映草稿", expanded=False):
         st.caption("这一步不是主流程。只有在你确实需要继续进剪映微调时才用。")
@@ -1346,19 +1579,29 @@ def render_ad_ops_tab() -> None:
             )
             if st.button("当前 Run 上传到 Meta 暂存池（关停）", use_container_width=True):
                 try:
-                    material = register_and_prelaunch_run_output(
+                    st.session_state["last_meta_stage_result"] = stage_run_output_to_meta(
                         run_id=str(st.session_state.get("run_id") or ""),
                         final_video_result=current_run_result,
                         script=st.session_state.get("script"),
                         ti_intro=st.session_state.get("ti_intro"),
                         source_inputs=st.session_state.get("inputs"),
                     )
-                    st.success(
-                        f"已进入 Meta 暂存池：素材 {material.get('material_id')} | ad_id {material.get('meta_mapping', {}).get('ad_id', '')}"
-                    )
-                    st.rerun()
                 except Exception as exc:
-                    st.error(f"上传到 Meta 暂存池失败：{exc}")
+                    st.session_state["last_meta_stage_result"] = {
+                        "status": "partial_failure",
+                        "material_id": "",
+                        "failed_step": "register",
+                        "steps": [
+                            {
+                                "step": "register",
+                                "label": "写入 Meta 暂存池",
+                                "status": "failed",
+                                "message": str(exc),
+                            }
+                        ],
+                        "meta_mapping": {},
+                    }
+            _render_meta_stage_report(st.session_state.get("last_meta_stage_result"))
     else:
         st.info("当前 Run 还没有正式成片。你仍然可以在这个页签查看 Meta 暂存池状态、审核素材、运行 Agent 和执行 Dry Run 测试。")
 
