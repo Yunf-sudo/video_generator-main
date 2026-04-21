@@ -1,0 +1,97 @@
+{
+  "project_name": "Anywell Agent Handover",
+  "version": "1.0.0",
+  "workspace": {
+    "legacy_root": "..",
+    "generated_root": "bundle/generated",
+    "runs_root": "bundle/generated/runs",
+    "deliverables_root": "bundle/generated/deliverables",
+    "ad_ops_state_root": "bundle/generated/ad_ops_state",
+    "scripts_root": "bundle/scripts",
+    "source_root": "bundle/src",
+    "configs_root": "bundle/configs",
+    "prompts_root": "bundle/prompts",
+    "logs_root": "bundle/logs",
+    "reports_root": "bundle/reports"
+  },
+  "frontend": {
+    "page_title": "Anywell Agent",
+    "layout": "wide",
+    "default_material_limit": 200
+  },
+  "materials": {
+    "material_record_glob": "bundle/generated/ad_ops_state/materials/*.json",
+    "deliverable_video_globs": [
+      "bundle/generated/deliverables/**/final_video.mp4",
+      "bundle/generated/runs/**/exports/*.mp4"
+    ],
+    "video_path_candidates": [
+      "final_video_result.video_path",
+      "storage_uri",
+      "video_path"
+    ],
+    "thumbnail_path_candidates": [
+      "thumbnail_uri"
+    ],
+    "max_records": 200
+  },
+  "generation": {
+    "runner_script": "bundle/scripts/run_anywell_campaign.py",
+    "pythonpath": "bundle/src",
+    "default_campaign_config": "bundle/configs/anywell_freedom_campaign.json",
+    "default_prompt": "bundle/prompts/anywell_freedom_campaign.md",
+    "default_output_root": "bundle/generated/deliverables/agent_default",
+    "default_log_path": "bundle/logs/agent_default.log",
+    "default_summary_path": "bundle/reports/agent_default_summary.md",
+    "max_concepts": 1,
+    "max_scenes": 3
+  },
+  "legacy_import": {
+    "source_material_glob": "../generated/ad_ops_state/materials/*.json",
+    "target_material_dir": "bundle/generated/ad_ops_state/materials",
+    "target_asset_dir": "bundle/generated/imported_assets",
+    "copy_paths": [
+      "storage_uri",
+      "thumbnail_uri",
+      "final_video_result.video_path",
+      "final_video_result.audio_path",
+      "final_video_result.subtitle_path"
+    ]
+  },
+  "meta": {
+    "api_version": "v19.0",
+    "read_only": true,
+    "ad_account_id": "act_2083051298789582",
+    "default_target_adset_ids": [
+      "120244986089430635"
+    ],
+    "daily_budget_fallback": 50.0,
+    "access_token_env_keys": [
+      "META_ACCESS_TOKEN",
+      "FACEBOOK_ACCESS_TOKEN"
+    ]
+  },
+  "monitor_rules": {
+    "target_active_ads_per_adset": 3,
+    "winner_purchase_count": 3,
+    "gate_ratio_1": 0.3,
+    "gate_ratio_2": 0.8,
+    "gate_ratio_3": 1.6,
+    "min_impressions": 800,
+    "min_ctr": 5.0,
+    "min_3s_play_rate": 30.0,
+    "min_atc": 1,
+    "min_roas": 1.5,
+    "expire_days_1_purchase": 4.0,
+    "expire_days_2_purchase": 7.0,
+    "zombie_freeze_hours": 3.0,
+    "paused_backup_max_spend": 2.0,
+    "monitor_interval_minutes": 60
+  },
+  "runtime": {
+    "monitor_state_path": "runtime/monitor_state.json",
+    "healthcheck_report_path": "runtime/healthcheck_report.json",
+    "task_history_path": "runtime/task_history.jsonl",
+    "bundle_manifest_path": "runtime/bundle_manifest.json"
+  }
+}

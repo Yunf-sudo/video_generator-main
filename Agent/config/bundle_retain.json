@@ -1,0 +1,17 @@
+{
+  "description": "Bundle slimming baseline. Files matching these patterns are treated as the current recommended keep-set for Agent default operation.",
+  "keep_globs": [
+    "src/**/*.py",
+    "scripts/_bootstrap.py",
+    "scripts/run_anywell_campaign.py",
+    "configs/anywell_freedom_campaign.json",
+    "configs/streamlit_app_defaults.py",
+    "configs/ad_ops/material_flow_settings.py",
+    "configs/prompt_inputs/prompt_templates.py",
+    "configs/runtime_tunables/runtime_settings.py",
+    "prompts/anywell_freedom_campaign.md",
+    "白底图/*.JPG",
+    "prompt_overrides.json",
+    "prompt_overrides.example.json"
+  ]
+}
