@@ -46,6 +46,19 @@
     "max_concepts": 1,
     "max_scenes": 3
   },
+  "tts": {
+    "base_runtime_tunables_path": "bundle/configs/runtime_tunables/runtime_settings.py",
+    "runtime_override_path": "runtime/runtime_tunables.generated.py",
+    "provider": "edge_tts",
+    "edge_voice": "en-US-AvaNeural",
+    "edge_rate_percent": -18,
+    "edge_pitch_hz": -8,
+    "macos_voice": "Ava",
+    "macos_rate": 145,
+    "windows_voice": "",
+    "windows_rate": 0,
+    "allow_silent_fallback": true
+  },
   "legacy_import": {
     "source_material_glob": "../generated/ad_ops_state/materials/*.json",
     "target_material_dir": "bundle/generated/ad_ops_state/materials",
@@ -91,6 +104,7 @@
   "runtime": {
     "monitor_state_path": "runtime/monitor_state.json",
     "healthcheck_report_path": "runtime/healthcheck_report.json",
+    "frontend_validation_report_path": "runtime/frontend_validation_report.json",
     "task_history_path": "runtime/task_history.jsonl",
     "bundle_manifest_path": "runtime/bundle_manifest.json"
   }

@@ -11,6 +11,7 @@ from typing import Any
 from agent.config import resolve_path
 from agent.env import load_agent_env
 from agent.history import append_history
+from agent.tts_settings import materialize_runtime_tunables, validate_tts_runtime_bridge
 
 
 def build_generation_command(settings: dict[str, Any]) -> list[str]:
@@ -60,9 +61,15 @@ def generation_paths(settings: dict[str, Any]) -> dict[str, Path]:
 
 def build_generation_command_string(settings: dict[str, Any]) -> str:
     command = build_generation_command(settings)
+    tts_validation = validate_tts_runtime_bridge(settings)
     return "PYTHONPATH={pythonpath} {command}".format(
         pythonpath=shlex.quote(str(resolve_path(str(settings.get("generation", {}).get("pythonpath") or "")))),
-        command=" ".join(shlex.quote(part) for part in command),
+        command=" ".join(
+            [
+                f"RUNTIME_TUNABLES_CONFIG_PATH={shlex.quote(str(tts_validation['runtime_override_path']))}",
+                *[shlex.quote(part) for part in command],
+            ]
+        ),
     )
 
 
@@ -80,6 +87,10 @@ def validate_generation_bridge(settings: dict[str, Any]) -> dict[str, Any]:
         results["checks"][key] = {"path": str(path), "exists": exists}
         if not exists:
             results["ok"] = False
+    tts_validation = validate_tts_runtime_bridge(settings)
+    results["tts_runtime"] = tts_validation
+    if not tts_validation.get("ok"):
+        results["ok"] = False
     results["paths"] = {key: str(path) for key, path in paths.items()}
     results["command"] = build_generation_command_string(settings)
     return results
@@ -125,8 +136,10 @@ def run_generation(settings: dict[str, Any], *, execute: bool = False) -> dict[s
     load_agent_env()
     env = dict(os.environ)
     paths = generation_paths(settings)
+    runtime_override = materialize_runtime_tunables(settings)
     env["PYTHONPATH"] = str(paths["pythonpath"])
     env["PROMPT_OVERRIDES_PATH"] = str((paths["runner_script"].parents[1] / "prompt_overrides.json").resolve())
+    env["RUNTIME_TUNABLES_CONFIG_PATH"] = str(runtime_override["path"])
     command = build_generation_command(settings)
     paths["default_output_root"].mkdir(parents=True, exist_ok=True)
     paths["default_log_path"].parent.mkdir(parents=True, exist_ok=True)
@@ -146,6 +159,7 @@ def run_generation(settings: dict[str, Any], *, execute: bool = False) -> dict[s
         "stdout": completed.stdout,
         "stderr": completed.stderr,
         "outputs": recent_generation_outputs(settings),
+        "runtime_tunables_override": runtime_override,
     }
     append_history(
         settings,
@@ -155,6 +169,7 @@ def run_generation(settings: dict[str, Any], *, execute: bool = False) -> dict[s
         payload={
             "returncode": completed.returncode,
             "outputs": result["outputs"],
+            "runtime_tunables_override": runtime_override,
             "stdout_tail": (completed.stdout or "")[-2000:],
             "stderr_tail": (completed.stderr or "")[-2000:],
         },

@@ -44,7 +44,8 @@ Agent/
 │   ├── healthcheck.py
 │   ├── import_legacy_assets.py
 │   ├── run_generation_bridge.py
-│   └── scan_meta.py
+│   ├── scan_meta.py
+│   └── validate_frontend.py
 └── src/
     └── agent/
         ├── __init__.py
@@ -53,12 +54,14 @@ Agent/
         ├── config.py
         ├── dashboard.py
         ├── env.py
+        ├── frontend_validation.py
         ├── generation_bridge.py
         ├── healthcheck.py
         ├── history.py
         ├── legacy_import.py
         ├── material_loader.py
-        └── meta_monitor.py
+        ├── meta_monitor.py
+        └── tts_settings.py
 ```
 
 ### 统一配置
@@ -72,6 +75,7 @@ Agent/
 - 工作区路径
 - 素材扫描规则
 - 生成桥接默认参数
+- TTS 配音默认参数
 - Meta 只读监控参数
 - 广告监控规则
 - 历史素材导入规则
@@ -169,9 +173,38 @@ python Agent/scripts/import_legacy_assets.py
 
 默认桥接参数也统一由 `agent_settings.json` 管理。
 
+现在桥接还会自动注入一份运行时 TTS 覆盖文件：
+
+- `Agent/runtime/runtime_tunables.generated.py`
+
+也就是说，同事在网页端改完音色、语速、音高后，后续执行生成任务时会自动吃到这些设置，不需要手动改 bundle 里的底层配置。
+
 日常入口仍然只需要通过 `Agent/config/agent_settings.json` 管理，不要求同事直接改 bundle 内部文件。
 
-#### 6. 任务历史追踪
+#### 6. TTS 网页调参
+
+前端“生成桥接”页现在已经支持直接调整：
+
+- TTS provider
+- Edge 常用音色
+- Edge 语速
+- Edge 音高
+- macOS fallback 音色与语速
+- Windows fallback 音色与语速
+- 是否允许静音兜底
+
+同时提供 3 个快捷预设：
+
+- 舒缓温柔
+- 中性自然
+- 清晰有力
+
+保存后会同时完成两件事：
+
+- 更新 `Agent/config/agent_settings.json`
+- 生成 `Agent/runtime/runtime_tunables.generated.py`
+
+#### 7. 任务历史追踪
 
 交接版会把关键动作写入任务历史，包括：
 
@@ -180,6 +213,7 @@ python Agent/scripts/import_legacy_assets.py
 - 导入历史素材
 - 刷新生成状态
 - 执行默认生成任务
+- 保存 TTS 配置
 - 健康检查
 - Meta 只读扫描
 
@@ -189,7 +223,7 @@ python Agent/scripts/import_legacy_assets.py
 
 并且会在前端“任务历史”页签中直接展示。
 
-#### 7. Bundle 清单与裁剪审计
+#### 8. Bundle 清单与裁剪审计
 
 交接版已经加入两层 bundle 管理能力：
 
@@ -248,15 +282,72 @@ streamlit run Agent/app.py
 
 其中“生成桥接”页现在支持：
 
+- 调整 TTS 音色、语速、音高
+- 一键套用 TTS 音色预设
+- 保存 TTS 配置并生成运行时覆盖文件
 - 刷新生成状态
 - 执行默认生成任务
 - 查看最近成片、日志和概念报告
+- 默认按需加载视频预览，避免页面首屏过重
 
 “配置”页现在支持：
 
 - 刷新 bundle 清单
 - 审计 bundle 保留集
 - 查看建议复核文件
+
+### 验证命令
+
+如果你要做“不生成视频”的前后端联调，直接运行：
+
+```bash
+python Agent/scripts/validate_frontend.py
+```
+
+这条命令会自动验证：
+
+- 前端 7 个页签是否能正常渲染
+- 素材导入、素材扫描、素材预览开关是否正常
+- TTS 网页配置是否能保存并生成运行时覆盖文件
+- Meta 无 token 的阻塞提示是否正常
+- Meta 有 token 时的真实只读扫描和健康检查联动是否正常
+- 生成桥接“刷新状态”是否正常
+- 健康检查是否落盘
+- bundle 清单和裁剪审计是否正常
+- 任务历史是否记录了关键动作
+
+注意：
+
+- 这个验证不会点击“执行默认生成任务”
+- 不会生成新视频
+- 不会对 Meta 做任何写操作
+
+验证报告会写到：
+
+- `Agent/runtime/frontend_validation_report.json`
+- `Agent/runtime/healthcheck_report.json`
+- `Agent/runtime/task_history.jsonl`
+
+### 已完成的实测结果
+
+当前交接版已经完成一轮前端全功能验证，结果如下：
+
+- 前端 7 个页签渲染正常
+- 素材记录：`5`
+- 可加载素材：`5`
+- 加载失败：`0`
+- TTS 网页保存验证通过
+- TTS 运行时覆盖文件已生成
+- Meta 阻塞路径验证通过
+- Meta 真实只读扫描验证通过
+- 真实只读扫描广告组数：`1`
+- 当前计划动作数：`0`
+- bundle 总文件数：`150`
+- bundle 建议复核文件：`87`
+
+最新验证报告见：
+
+- [frontend_validation_report.json](/Users/yf/Downloads/wok/video_v1/Agent/runtime/frontend_validation_report.json)
 
 #### Meta 只读扫描
 

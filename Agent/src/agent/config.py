@@ -14,15 +14,39 @@ def agent_root() -> Path:
     return AGENT_ROOT
 
 
+def _resolve_settings_path(configured: str | None) -> Path:
+    raw = (configured or "").strip()
+    if not raw:
+        return DEFAULT_SETTINGS_PATH
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        return candidate
+    cwd_candidate = (Path.cwd() / candidate).resolve()
+    if cwd_candidate.exists() or candidate.parts[:1] == ("Agent",):
+        return cwd_candidate
+    return (AGENT_ROOT / candidate).resolve()
+
+
 def load_settings(path: str | None = None) -> dict[str, Any]:
-    configured = (path or os.getenv("AGENT_SETTINGS_PATH") or "").strip()
-    settings_path = Path(configured) if configured else DEFAULT_SETTINGS_PATH
-    if not settings_path.is_absolute():
-        settings_path = (AGENT_ROOT / settings_path).resolve()
+    settings_path = _resolve_settings_path(path or os.getenv("AGENT_SETTINGS_PATH") or "")
     payload = json.loads(settings_path.read_text(encoding="utf-8"))
     payload["config_path"] = str(settings_path)
     payload["agent_root"] = str(AGENT_ROOT)
     return payload
+
+
+def save_settings(settings: dict[str, Any], path: str | None = None) -> Path:
+    settings_path = _resolve_settings_path(path or str(settings.get("config_path") or "") or "")
+    payload = json.loads(json.dumps(settings, ensure_ascii=False))
+    payload.pop("config_path", None)
+    payload.pop("agent_root", None)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    payload["config_path"] = str(settings_path)
+    payload["agent_root"] = str(AGENT_ROOT)
+    settings.clear()
+    settings.update(payload)
+    return settings_path
 
 
 def resolve_path(value: str, *, base: Path | None = None) -> Path:
