@@ -60,6 +60,7 @@ Agent/
         ├── history.py
         ├── legacy_import.py
         ├── material_loader.py
+        ├── meta_upload.py
         ├── meta_monitor.py
         └── tts_settings.py
 ```
@@ -76,6 +77,7 @@ Agent/
 - 素材扫描规则
 - 生成桥接默认参数
 - TTS 配音默认参数
+- Meta 上传默认参数
 - Meta 只读监控参数
 - 广告监控规则
 - 历史素材导入规则
@@ -204,7 +206,57 @@ python Agent/scripts/import_legacy_assets.py
 - 更新 `Agent/config/agent_settings.json`
 - 生成 `Agent/runtime/runtime_tunables.generated.py`
 
-#### 7. 任务历史追踪
+#### 7. 视频合成与字幕
+
+“视频合成”区现在会单独展示：
+
+- 最终成片是否存在
+- 字幕文件是否存在
+- 字幕是否已经烧录进最终视频
+
+这次也修正了一个关键问题：
+
+- 即使使用生成视频自带音轨，也会继续按脚本生成 SRT
+- 最终合成时仍然会尝试把字幕烧录进成片
+
+也就是说，前端现在能区分：
+
+- 只是有字幕文件
+- 还是字幕已经真正进了最终视频
+
+#### 8. Meta 上传
+
+前端“Meta 上传”区现在是手动模式，不自动上传。
+
+你需要显式做两件事：
+
+1. 打开“允许写入 Meta”
+2. 点击上传按钮
+
+支持两种模式：
+
+- `仅登记本地素材`
+- `直达广告组（创建 PAUSED 广告）`
+
+其中“直达广告组”并不是只把视频放进素材库。它会顺序完成：
+
+- 上传 advideo
+- 上传缩略图
+- 创建 creative
+- 在指定 adset 下创建 `PAUSED` 广告
+
+所以最终会直接出现在广告组里。
+
+同时也支持两类来源：
+
+- 最近生成成片
+- 已入库素材
+
+Meta 上传桥接运行时配置会写到：
+
+- `Agent/runtime/ad_ops.generated.py`
+
+#### 9. 任务历史追踪
 
 交接版会把关键动作写入任务历史，包括：
 
@@ -214,6 +266,7 @@ python Agent/scripts/import_legacy_assets.py
 - 刷新生成状态
 - 执行默认生成任务
 - 保存 TTS 配置
+- 保存 Meta 上传默认值
 - 健康检查
 - Meta 只读扫描
 
@@ -223,7 +276,7 @@ python Agent/scripts/import_legacy_assets.py
 
 并且会在前端“任务历史”页签中直接展示。
 
-#### 8. Bundle 清单与裁剪审计
+#### 10. Bundle 清单与裁剪审计
 
 交接版已经加入两层 bundle 管理能力：
 
@@ -285,6 +338,9 @@ streamlit run Agent/app.py
 - 调整 TTS 音色、语速、音高
 - 一键套用 TTS 音色预设
 - 保存 TTS 配置并生成运行时覆盖文件
+- 查看字幕是否已烧录进最终视频
+- 手动控制是否上传到 Meta
+- 直接把成片接到指定广告组并创建 `PAUSED` 广告
 - 刷新生成状态
 - 执行默认生成任务
 - 查看最近成片、日志和概念报告
@@ -307,8 +363,10 @@ python Agent/scripts/validate_frontend.py
 这条命令会自动验证：
 
 - 前端 7 个页签是否能正常渲染
+- 生成区的 3 个二级页签是否正常渲染
 - 素材导入、素材扫描、素材预览开关是否正常
 - TTS 网页配置是否能保存并生成运行时覆盖文件
+- Meta 上传默认值是否能保存
 - Meta 无 token 的阻塞提示是否正常
 - Meta 有 token 时的真实只读扫描和健康检查联动是否正常
 - 生成桥接“刷新状态”是否正常
@@ -333,11 +391,13 @@ python Agent/scripts/validate_frontend.py
 当前交接版已经完成一轮前端全功能验证，结果如下：
 
 - 前端 7 个页签渲染正常
+- 生成区 3 个二级页签渲染正常
 - 素材记录：`5`
 - 可加载素材：`5`
 - 加载失败：`0`
 - TTS 网页保存验证通过
 - TTS 运行时覆盖文件已生成
+- Meta 上传默认值保存验证通过
 - Meta 阻塞路径验证通过
 - Meta 真实只读扫描验证通过
 - 真实只读扫描广告组数：`1`

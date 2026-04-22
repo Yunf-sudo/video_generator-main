@@ -99,9 +99,15 @@ def _initial_render_step(settings: dict[str, Any]) -> dict[str, Any]:
     _check_no_exceptions(at, "前端初始渲染")
     tab_labels = [getattr(item, "label", "") for item in at.tabs]
     button_labels = [getattr(item, "label", "") for item in at.button]
+    required_top_tabs = ["概览", "素材监控", "Meta 监控", "生成桥接", "健康检查", "任务历史", "配置"]
+    required_generation_subtabs = ["配音生成", "视频合成", "Meta 上传"]
     _assert(
-        tab_labels == ["概览", "素材监控", "Meta 监控", "生成桥接", "健康检查", "任务历史", "配置"],
-        f"页签数量或顺序异常: {tab_labels}",
+        all(label in tab_labels for label in required_top_tabs),
+        f"缺少顶层页签: {tab_labels}",
+    )
+    _assert(
+        all(label in tab_labels for label in required_generation_subtabs),
+        f"缺少生成区二级页签: {tab_labels}",
     )
     _assert("执行默认生成任务" in button_labels, "缺少生成任务按钮")
     _assert("保存 TTS 配置" in button_labels, "缺少 TTS 保存按钮")
@@ -190,6 +196,24 @@ def _tts_settings_step(settings: dict[str, Any]) -> dict[str, Any]:
             "edge_voice": resolved.get("edge_voice"),
             "edge_rate_percent": preferences.get("edge_rate_percent"),
             "edge_pitch_hz": preferences.get("edge_pitch_hz"),
+        },
+    )
+
+
+def _meta_upload_ui_step() -> dict[str, Any]:
+    at = _app()
+    at.run()
+    _button(at, "保存上传默认值").click().run()
+    _check_no_exceptions(at, "保存 Meta 上传默认值后")
+    save_result = at.session_state["agent_meta_launch_save_result"]
+    _assert("meta_launch" in save_result, "Meta 上传默认值缺少 meta_launch 字段")
+    return _step(
+        "meta_upload_ui_flow",
+        "success",
+        "Meta 上传默认值可在网页端保存。",
+        {
+            "default_upload_mode": save_result.get("meta_launch", {}).get("default_upload_mode"),
+            "default_target_adset_id": save_result.get("meta_launch", {}).get("default_target_adset_id"),
         },
     )
 
@@ -299,7 +323,16 @@ def _history_step(settings: dict[str, Any], *, baseline_total: int) -> dict[str,
     summary = history_summary(settings, limit=500)
     items = summary["items"]
     event_types = {str(item.get("event_type") or "") for item in items}
-    required = {"legacy_import", "generation_status_refresh", "healthcheck", "bundle_manifest", "bundle_audit", "meta_monitor", "tts_settings_save"}
+    required = {
+        "legacy_import",
+        "generation_status_refresh",
+        "healthcheck",
+        "bundle_manifest",
+        "bundle_audit",
+        "meta_monitor",
+        "tts_settings_save",
+        "meta_launch_settings_save",
+    }
     missing = sorted(required - event_types)
     _assert(summary["summary"]["total"] > baseline_total, "任务历史没有新增记录")
     _assert(not missing, f"任务历史缺少事件类型: {missing}")
@@ -325,6 +358,7 @@ def run_frontend_validation(settings: dict[str, Any]) -> dict[str, Any]:
         steps.append(_initial_render_step(settings))
         steps.append(_material_flow_step(settings))
         steps.append(_tts_settings_step(settings))
+        steps.append(_meta_upload_ui_step())
         steps.append(_generation_flow_step())
         steps.append(_healthcheck_step())
         steps.append(_config_flow_step())

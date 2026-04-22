@@ -592,15 +592,20 @@ def _run_single_concept(
     if use_generated_video_audio:
         audio_url = ""
         audio_path = ""
-        audio_duration = 0.0
-        copied_audio_path = ""
-        srt_url = ""
-        srt_path = ""
-        copied_srt_path = ""
-        scene_duration_map = None if preserve_generated_clip_durations else {
+        scene_duration_map = {
             int(key): float(value.get("duration_seconds") or value.get("planned_duration_seconds") or 0)
             for key, value in resolved.items()
         }
+        audio_duration = sum(duration for duration in scene_duration_map.values() if duration > 0)
+        copied_audio_path = ""
+        srt_url, srt_path = generate_srt_asset_from_audio(
+            "",
+            script=script,
+            duration_seconds=audio_duration if audio_duration > 0 else None,
+            scene_duration_map=scene_duration_map,
+            audio_path=None,
+        )
+        copied_srt_path = "" if video_only_delivery else _safe_copy(srt_path, concept_dir / "subtitles.srt")
     else:
         audio_url, audio_path, audio_duration = generate_tts_audio(script, voice=script["meta"].get("tts_voice", "alloy"))
         if not audio_path:
@@ -662,8 +667,10 @@ def _run_single_concept(
         "audio_path": copied_audio_path,
         "audio_duration_seconds": audio_duration,
         "subtitle_url": srt_url,
-        "subtitle_path": copied_srt_path,
+        "subtitle_path": copied_srt_path or str(final_video.get("subtitle_path") or srt_path or ""),
+        "subtitles_burned": bool(final_video.get("subtitles_burned")),
         "final_video_path": copied_final_video,
+        "final_video_result": final_video,
         "scene_duration_map": scene_duration_map or {},
         "transition_name": script["meta"].get("transition_name", ""),
         "transition_duration_seconds": float(script["meta"].get("transition_duration_seconds") or 0.0),

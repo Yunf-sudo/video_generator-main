@@ -4,6 +4,7 @@ import os
 import shlex
 import subprocess
 import sys
+import json
 from glob import glob
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,46 @@ def generation_paths(settings: dict[str, Any]) -> dict[str, Path]:
     }
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _concept_report_summary(path: Path) -> dict[str, Any]:
+    payload = _read_json(path)
+    concept_dir = path.parent
+    final_video_result = payload.get("final_video_result") if isinstance(payload.get("final_video_result"), dict) else {}
+    final_video_path = str(
+        payload.get("final_video_path")
+        or final_video_result.get("video_path")
+        or ((concept_dir / "final_video.mp4") if (concept_dir / "final_video.mp4").exists() else "")
+        or ""
+    ).strip()
+    subtitle_path = str(
+        payload.get("subtitle_path")
+        or final_video_result.get("subtitle_path")
+        or ((concept_dir / "subtitles.srt") if (concept_dir / "subtitles.srt").exists() else "")
+        or ""
+    ).strip()
+    return {
+        "concept_report_path": str(path.resolve()),
+        "concept_id": str(payload.get("concept_id") or concept_dir.name),
+        "title": str(payload.get("title") or concept_dir.name),
+        "status": str(payload.get("status") or ""),
+        "concept_dir": str(concept_dir.resolve()),
+        "run_root": str(payload.get("run_root") or ""),
+        "final_video_path": final_video_path,
+        "final_video_exists": bool(final_video_path and Path(final_video_path).exists()),
+        "subtitle_path": subtitle_path,
+        "subtitle_exists": bool(subtitle_path and Path(subtitle_path).exists()),
+        "subtitles_burned": bool(payload.get("subtitles_burned") or final_video_result.get("subtitles_burned")),
+        "audio_path": str(payload.get("audio_path") or final_video_result.get("audio_path") or ""),
+    }
+
+
 def build_generation_command_string(settings: dict[str, Any]) -> str:
     command = build_generation_command(settings)
     tts_validation = validate_tts_runtime_bridge(settings)
@@ -101,8 +142,11 @@ def recent_generation_outputs(settings: dict[str, Any]) -> dict[str, Any]:
     output_root = paths["default_output_root"]
     log_path = paths["default_log_path"]
     summary_path = paths["default_summary_path"]
-    final_videos = sorted(glob(str(output_root / "**" / "final_video.mp4"), recursive=True))
-    concept_reports = sorted(glob(str(output_root / "**" / "concept_report.json"), recursive=True))
+    concept_report_paths = sorted(glob(str(output_root / "**" / "concept_report.json"), recursive=True))
+    concept_reports = [_concept_report_summary(Path(item)) for item in concept_report_paths][-10:]
+    final_videos = [item["final_video_path"] for item in concept_reports if item.get("final_video_exists")]
+    if not final_videos:
+        final_videos = sorted(glob(str(output_root / "**" / "final_video.mp4"), recursive=True))[-10:]
     return {
         "output_root": str(output_root),
         "log_path": str(log_path),
@@ -110,7 +154,8 @@ def recent_generation_outputs(settings: dict[str, Any]) -> dict[str, Any]:
         "summary_path": str(summary_path),
         "summary_exists": summary_path.exists(),
         "final_videos": final_videos[-10:],
-        "concept_reports": concept_reports[-10:],
+        "concept_reports": [item["concept_report_path"] for item in concept_reports],
+        "recent_concepts": concept_reports,
     }
 
 

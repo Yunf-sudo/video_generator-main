@@ -12,6 +12,7 @@ from agent.generation_bridge import validate_generation_bridge
 from agent.history import append_history
 from agent.material_loader import scan_materials
 from agent.meta_monitor import run_meta_monitor
+from agent.meta_upload import validate_meta_upload_bridge
 from agent.tts_settings import validate_tts_runtime_bridge
 
 
@@ -36,6 +37,7 @@ def run_healthcheck(settings: dict[str, Any], *, include_meta: bool = False) -> 
         "path_checks": path_checks,
         "generation_bridge": generation,
         "tts_runtime": validate_tts_runtime_bridge(settings),
+        "meta_upload_bridge": validate_meta_upload_bridge(settings),
         "materials": materials["summary"],
         "token_present": bool((os.getenv("META_ACCESS_TOKEN") or os.getenv("FACEBOOK_ACCESS_TOKEN") or "").strip()),
         "environment": env_info,

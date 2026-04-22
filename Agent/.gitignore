@@ -4,5 +4,6 @@ runtime/*.json
 runtime/*.jsonl
 runtime/*.log
 runtime/runtime_tunables.generated.py
+runtime/ad_ops.generated.py
 bundle/**/__pycache__/
 bundle/**/*.pyc

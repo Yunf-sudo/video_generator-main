@@ -46,6 +46,17 @@
     "max_concepts": 1,
     "max_scenes": 3
   },
+  "meta_launch": {
+    "base_ad_ops_config_path": "bundle/configs/ad_ops/material_flow_settings.py",
+    "runtime_override_path": "runtime/ad_ops.generated.py",
+    "default_page_id": "325789213957232",
+    "default_target_adset_id": "120244986089430635",
+    "default_landing_page_url": "https://anywellshop.com/products/150kg-capacity-electric-wheelchair",
+    "default_ad_name": "test",
+    "default_creative_name": "[Agent] test",
+    "default_upload_mode": "direct_adset",
+    "enabled_by_default": false
+  },
   "tts": {
     "base_runtime_tunables_path": "bundle/configs/runtime_tunables/runtime_settings.py",
     "runtime_override_path": "runtime/runtime_tunables.generated.py",
