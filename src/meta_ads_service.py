@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ load_dotenv()
 AD_OPS_CONFIG = load_ad_ops_config()
 META_ADS_CONFIG = AD_OPS_CONFIG["meta_ads"]
 META_POOL_STATE_CONFIG = AD_OPS_CONFIG["meta_pool_state"]
+_META_FORCE_WRITE = ContextVar("meta_force_write", default=False)
 
 
 def _meta_access_token() -> str:
@@ -74,7 +77,22 @@ def _default_initial_status() -> str:
     return str(META_POOL_STATE_CONFIG.get("default_meta_ad_status") or "PAUSED").strip().upper()
 
 
+def _force_write_enabled() -> bool:
+    return bool(_META_FORCE_WRITE.get())
+
+
+@contextmanager
+def meta_write_override(enabled: bool = False):
+    token = _META_FORCE_WRITE.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _META_FORCE_WRITE.reset(token)
+
+
 def _dry_run_enabled() -> bool:
+    if _force_write_enabled():
+        return False
     return str(
         os.getenv(
             "META_ADS_DRY_RUN",
@@ -84,6 +102,8 @@ def _dry_run_enabled() -> bool:
 
 
 def _read_only_enabled() -> bool:
+    if _force_write_enabled():
+        return False
     return str(
         os.getenv(
             "META_ADS_READ_ONLY",

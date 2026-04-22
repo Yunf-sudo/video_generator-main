@@ -151,6 +151,8 @@ def _render_meta_stage_report(report: dict | None) -> None:
 
     if status == "success":
         st.success(f"Meta 链路已跑通：素材 {material_id} 已创建到广告层。")
+    elif status == "registered_only":
+        st.info(f"素材 {material_id} 已写入本地 Meta 暂存池，本次未执行真实上传。")
     elif status == "partial_failure":
         st.warning(f"Meta 链路在 {failed_step or '未知步骤'} 卡住，但前置成功步骤已经保留。")
 
@@ -227,7 +229,7 @@ def _infer_final_video_result_from_exports(run_id: str, tts_result: dict | None 
         "video_url": latest.resolve().as_uri(),
         "subtitle_path": subtitle_path,
         "audio_path": audio_path,
-        "subtitles_burned": bool(subtitle_path and Path(subtitle_path).exists()),
+        "subtitles_burned": False,
         "scene_duration_map": {},
         "transition_name": "",
         "transition_duration": 0.0,
@@ -808,16 +810,33 @@ def ensure_audio_and_subtitles_ready() -> None:
         generate_subtitles_step()
 
 
+def resolve_export_subtitle_path() -> str | None:
+    tts_result = _coerce_dict(st.session_state.get("tts_result"))
+    srt_path = str(tts_result.get("srt_path") or "").strip()
+    if srt_path and Path(srt_path).exists():
+        return srt_path
+
+    if st.session_state.get("script") and (tts_result.get("audio_url") or tts_result.get("file_path")):
+        generate_subtitles_step()
+        refreshed_tts_result = _coerce_dict(st.session_state.get("tts_result"))
+        refreshed_path = str(refreshed_tts_result.get("srt_path") or "").strip()
+        if refreshed_path and Path(refreshed_path).exists():
+            return refreshed_path
+
+    return None
+
+
 def export_formal_video_step() -> None:
     active_run = current_run_paths()
     if not all_storyboard_clips_ready():
         raise RuntimeError("当前还有片段未完成，无法拼接完整视频。")
     output_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    subtitle_path = resolve_export_subtitle_path()
     if USE_GENERATED_VIDEO_AUDIO:
         st.session_state["final_video_result"] = assemble_final_video(
             ordered_clip_paths(),
             audio_path=None,
-            srt_path=None,
+            srt_path=subtitle_path,
             output_dir=active_run.exports,
             filename=output_name,
             scene_duration_map=None,
@@ -833,7 +852,7 @@ def export_formal_video_step() -> None:
         st.session_state["final_video_result"] = assemble_final_video(
             ordered_clip_paths(),
             audio_path=tts_result.get("file_path"),
-            srt_path=tts_result.get("srt_path"),
+            srt_path=subtitle_path,
             output_dir=active_run.exports,
             filename=output_name,
             scene_duration_map=scene_duration_map or None,
@@ -1473,16 +1492,34 @@ def render_export_tab() -> None:
 
     final_result = st.session_state.get("final_video_result")
     if isinstance(final_result, dict) and final_result.get("video_path"):
+        meta_dry_run = is_meta_dry_run_mode()
         meta_read_only = is_meta_read_only_mode()
         st.video(final_result["video_path"])
         st.caption(final_result["video_path"])
+        subtitle_path = str(final_result.get("subtitle_path") or "").strip()
+        if final_result.get("subtitles_burned"):
+            st.success("这版正式成片已经烧录字幕。")
+        elif subtitle_path:
+            st.warning("检测到字幕文件，但这版成片还没有烧录字幕。请重新执行一次“拼接并导出完整视频”。")
+            st.caption(f"字幕文件：{subtitle_path}")
         st.markdown("### 下一步")
-        if meta_read_only:
-            st.write("正式成片已经准备好。当前 Meta 处于只读模式，这里只保留查看和后续监控入口，不执行上传或建广告。")
+        upload_toggle = st.checkbox(
+            "本次执行真实上传到 Meta（会写入广告账户并创建 PAUSED 广告）",
+            value=bool(st.session_state.get("export_actual_meta_upload", False)),
+            key="export_actual_meta_upload",
+        )
+        if upload_toggle:
+            if meta_dry_run:
+                st.warning("当前全局是 Dry Run，但你已经打开了本次真实上传开关。点击上传时会绕过 Dry Run，直接写入 Meta。")
+            elif meta_read_only:
+                st.warning("当前全局是只读模式，但你已经打开了本次真实上传开关。点击上传时会仅对这一次放开真实写入。")
+            else:
+                st.warning("你已开启真实上传。点击按钮后会把当前成片上传到 Meta，并继续创建创意和 PAUSED 广告。")
         else:
-            st.write("正式成片已经准备好。这里可以直接把当前 Run 一键接入 Meta；如果中途被平台限制拦住，也会明确告诉你卡在哪一步。")
+            st.write("正式成片已经准备好。默认只会把当前 Run 登记到本地 Meta 暂存池，不调用 Meta 上传、创意创建和广告创建。")
         next_cols = st.columns(2)
-        if next_cols[0].button("当前 Run 一键上传到 Meta", use_container_width=True, disabled=meta_read_only):
+        upload_button_label = "当前 Run 一键上传到 Meta" if upload_toggle else "当前 Run 仅登记到本地暂存池"
+        if next_cols[0].button(upload_button_label, use_container_width=True):
             with st.spinner("正在把当前成片接入 Meta 链路..."):
                 try:
                     upload_report = stage_run_output_to_meta(
@@ -1491,6 +1528,8 @@ def render_export_tab() -> None:
                         script=st.session_state.get("script"),
                         ti_intro=st.session_state.get("ti_intro"),
                         source_inputs=st.session_state.get("inputs"),
+                        perform_actual_upload=upload_toggle,
+                        allow_meta_write_override=upload_toggle,
                     )
                     st.session_state["last_meta_stage_result"] = upload_report
                 except Exception as exc:
@@ -1510,8 +1549,6 @@ def render_export_tab() -> None:
                     }
         if next_cols[1].button("进入广告运营", use_container_width=True):
             st.session_state["active_step"] = "广告运营"
-            st.session_state["active_step_nav"] = "广告运营"
-            st.session_state["active_step_nav_synced"] = "广告运营"
             st.rerun()
 
         _render_meta_stage_report(st.session_state.get("last_meta_stage_result"))
