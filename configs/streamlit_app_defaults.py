@@ -71,9 +71,9 @@ DEFAULT_INPUTS = {
     # 视频画幅：必须来自 VIDEO_ORIENTATION_OPTIONS。
     "video_orientation": "9:16",
     # 目标场景数：用于脚本规划场景数量。
-    "desired_scene_count": 5,
+    "desired_scene_count": 3,
     # 目标总时长：用于脚本和后续视频节奏规划。
-    "preferred_runtime_seconds": 28,
+    "preferred_runtime_seconds": 18,
     # 外部风格参考：通常由竞品分析自动写入，也可以手动填。
     "reference_style": "",
 }

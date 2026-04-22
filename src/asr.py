@@ -120,8 +120,7 @@ def _collect_subtitle_units(script: dict) -> list[dict]:
     scenes = _extract_scenes(script)
     units: list[dict] = []
     for scene in scenes:
-        text = _scene_subtitle_text(scene)
-        for part in _split_subtitle_units(text):
+        for part in _scene_subtitle_units(scene):
             units.append(
                 {
                     "scene_number": int(scene.get("scene_number", 0) or 0),
@@ -129,6 +128,18 @@ def _collect_subtitle_units(script: dict) -> list[dict]:
                 }
             )
     return units
+
+
+def _scene_subtitle_units(scene: dict) -> list[str]:
+    audio = scene.get("audio", {}) if isinstance(scene, dict) else {}
+    explicit_subtitle = _clean_subtitle_text(
+        (audio.get("subtitle_text") or scene.get("subtitle_text") or scene.get("subtitle") or "")
+    )
+    if explicit_subtitle:
+        return [explicit_subtitle]
+
+    text = _scene_subtitle_text(scene)
+    return _split_subtitle_units(text)
 
 
 def _scene_subtitle_text(scene: dict) -> str:

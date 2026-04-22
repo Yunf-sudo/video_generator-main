@@ -1108,19 +1108,27 @@ def render_brief_tab() -> None:
             else 0,
             key=_brief_widget_key("language"),
         )
-        desired_scene_count = st.slider(
+        st.session_state["inputs"]["desired_scene_count"] = 3
+        desired_scene_count_key = _brief_widget_key("desired_scene_count")
+        if st.session_state.get(desired_scene_count_key) != 3:
+            st.session_state[desired_scene_count_key] = 3
+        desired_scene_count = st.selectbox(
             "可编辑 | 目标场景数",
-            min_value=4,
-            max_value=6,
-            value=int(st.session_state["inputs"]["desired_scene_count"]),
-            key=_brief_widget_key("desired_scene_count"),
+            options=[3],
+            index=0,
+            key=desired_scene_count_key,
+            help="当前项目固定为 3 个场景。",
         )
-        preferred_runtime_seconds = st.slider(
+        st.session_state["inputs"]["preferred_runtime_seconds"] = 18
+        preferred_runtime_seconds_key = _brief_widget_key("preferred_runtime_seconds")
+        if st.session_state.get(preferred_runtime_seconds_key) != 18:
+            st.session_state[preferred_runtime_seconds_key] = 18
+        preferred_runtime_seconds = st.selectbox(
             "可编辑 | 目标总时长（秒）",
-            min_value=20,
-            max_value=36,
-            value=int(st.session_state["inputs"]["preferred_runtime_seconds"]),
-            key=_brief_widget_key("preferred_runtime_seconds"),
+            options=[18],
+            index=0,
+            key=preferred_runtime_seconds_key,
+            help="当前项目固定为约 18 秒，3 个场景，每个场景约 6 秒。",
         )
     with input_right:
         core_selling_points = st.text_area(
