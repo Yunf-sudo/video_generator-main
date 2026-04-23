@@ -90,6 +90,8 @@ def _render_fallback_prompt(bundle: dict[str, Any]) -> str:
         blocks.append(f"Creative direction: {bundle['creative_direction']}")
     if bundle.get("special_emphasis"):
         blocks.append(f"Special emphasis: {bundle['special_emphasis']}")
+    if bundle.get("product_geometry_lock"):
+        blocks.append(f"Product geometry lock: {bundle['product_geometry_lock']}")
     if bundle.get("continuity"):
         blocks.append(f"Continuity: {bundle['continuity']}")
     if bundle.get("audio_direction"):
@@ -151,9 +153,11 @@ def build_generation_prompt_bundle(
     )
     product_identity = _join_parts(
         meta.get("consistency_anchor", ""),
+        meta.get("product_geometry_notes", ""),
         product_reference_signature,
         product_visual_structure,
     )
+    product_geometry_lock = _join_parts(meta.get("product_geometry_notes", ""))
 
     bundle = _compact_dict(
         {
@@ -163,6 +167,7 @@ def build_generation_prompt_bundle(
             "scene_visual_plan": scene_visual_plan,
             "creative_direction": creative_direction,
             "special_emphasis": special_emphasis,
+            "product_geometry_lock": product_geometry_lock,
             "continuity": _continuity_summary(continuity),
             "audio_direction": audio_direction if str(target).strip().lower() == "video" else "",
             "product_identity": product_identity,
@@ -188,6 +193,7 @@ def compose_generation_prompt(
     hero_product_name: str | None = None,
     product_reference_signature: str | None = None,
     product_visual_structure: str | None = None,
+    allow_ai_composer: bool = True,
 ) -> dict[str, Any]:
     bundle = build_generation_prompt_bundle(
         target=target,
@@ -217,19 +223,20 @@ def compose_generation_prompt(
         },
     ]
 
-    prompt_text = ""
     composition_mode = "fallback"
-    try:
-        response = generate_content(
-            model=PROMPT_COMPOSER_MODEL,
-            messages=messages,
-            timeout_seconds=180.0,
-        )
-        prompt_text = extract_response_text(response).strip()
-        if prompt_text:
-            composition_mode = "ai_composed"
-    except Exception:
-        prompt_text = ""
+    prompt_text = ""
+    if allow_ai_composer:
+        try:
+            response = generate_content(
+                model=PROMPT_COMPOSER_MODEL,
+                messages=messages,
+                timeout_seconds=180.0,
+            )
+            prompt_text = extract_response_text(response).strip()
+            if prompt_text:
+                composition_mode = "ai_composed"
+        except Exception:
+            prompt_text = ""
 
     return {
         "bundle": bundle,

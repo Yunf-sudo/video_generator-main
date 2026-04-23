@@ -406,5 +406,6 @@ def generate_and_upload_tts(
     return _generate_local_tts(text, output_dir, filename, bucket_name, voice=voice)
 
 
-def generate_tts_audio(script: dict, voice: str = "alloy"):
-    return generate_and_upload_tts(_ensure_voiceover_text(script), voice=voice)
+def generate_tts_audio(script: dict, voice: str = "alloy", text_override: str = ""):
+    resolved_text = str(text_override or "").strip() or _ensure_voiceover_text(script)
+    return generate_and_upload_tts(resolved_text, voice=voice)

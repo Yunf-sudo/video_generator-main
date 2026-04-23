@@ -709,6 +709,7 @@ def _build_video_prompt(
     hero_product_name: str | None = None,
     product_reference_signature: str | None = None,
     product_visual_structure: str | None = None,
+    allow_ai_composer: bool = True,
 ) -> str:
     compact_product_context = bool((meta or {}).get("compact_video_product_context", False))
     if str((meta or {}).get("video_reference_strategy", "") or "").strip().lower() == "storyboard_only":
@@ -759,6 +760,7 @@ def _build_video_prompt(
         hero_product_name=hero_product_name,
         product_reference_signature=resolved_product_reference_signature,
         product_visual_structure=resolved_product_visual_structure,
+        allow_ai_composer=allow_ai_composer,
     )
     return apply_override(
         prompt_composition["prompt"],
@@ -778,6 +780,7 @@ def build_video_prompt(
     hero_product_name: str | None = None,
     product_reference_signature: str | None = None,
     product_visual_structure: str | None = None,
+    allow_ai_composer: bool = True,
 ) -> str:
     return _build_video_prompt(
         scene_info=scene_info,
@@ -791,6 +794,7 @@ def build_video_prompt(
         hero_product_name=hero_product_name,
         product_reference_signature=product_reference_signature,
         product_visual_structure=product_visual_structure,
+        allow_ai_composer=allow_ai_composer,
     )
 
 
@@ -812,6 +816,7 @@ def generate_video_from_image_path(
     hero_product_name: Optional[str] = None,
     product_reference_signature: Optional[str] = None,
     product_visual_structure: Optional[str] = None,
+    prompt_override: Optional[str] = None,
 ):
     clips_dir = ensure_active_run().clips
     clips_dir.mkdir(parents=True, exist_ok=True)
@@ -819,18 +824,20 @@ def generate_video_from_image_path(
     prepared_path = str(image_path) if use_original_storyboard else crop_image_to_ratio(image_path, aspect_ratio)
 
     requested_duration = _google_duration_seconds(duration_seconds)
-    prompt_text = _build_video_prompt(
-        scene_info,
-        visuals,
-        scene_audio,
-        aspect_ratio,
-        requested_duration,
-        continuity=continuity,
-        meta=meta,
-        hero_product_name=hero_product_name,
-        product_reference_signature=product_reference_signature,
-        product_visual_structure=product_visual_structure,
-    )
+    prompt_text = str(prompt_override or "").strip()
+    if not prompt_text:
+        prompt_text = _build_video_prompt(
+            scene_info,
+            visuals,
+            scene_audio,
+            aspect_ratio,
+            requested_duration,
+            continuity=continuity,
+            meta=meta,
+            hero_product_name=hero_product_name,
+            product_reference_signature=product_reference_signature,
+            product_visual_structure=product_visual_structure,
+        )
 
     product_reference_urls: list[str] = []
     allow_product_reference_images_in_video = bool((meta or {}).get("allow_product_reference_images_in_video", False))

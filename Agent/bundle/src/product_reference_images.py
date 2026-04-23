@@ -20,6 +20,10 @@ PRODUCT_VISUAL_EXCLUSION_RULES = (
     "folded chair, semi-folded chair, collapsed chair, compact storage form, or folding/unfolding demonstration. "
     "If a reference photo contains a rear lower battery pack, treat it as an omitted accessory for advertising visuals; "
     "hide it by angle, rider body, shadow, or framing while preserving the rest of the wheelchair identity. "
+    "Preserve the exact reference wheel layout: small black front caster wheels, larger rear drive wheels, matching hub covers, tire thickness, spacing, and front/rear size ratio. "
+    "During forward motion, each front caster assembly must swivel 180 degrees around its vertical caster axis from a reversed forward-facing orientation: the vertical swivel stem/pivot sits ahead, the small wheel axle/center trails behind that pivot toward the chair body, and the two fork/yoke arms extend backward from the vertical stem to grip the small wheel from the rear/side-rear position. Never draw fork arms projecting forward in front of the small wheel, and never point the fork/yoke forward with the wheel center ahead of the pivot. "
+    "The generated ad frame must be photorealistic live-action only: no cartoon, animation, anime, illustration, stylized painting, 3D render, CGI, toy-like character, game asset, or plastic-looking synthetic people. "
+    "Brand/logo placement must follow the reference product: any AnyWell logo or brand mark belongs only on the rear/back panel area. Side panels, side frame, armrests, wheels, and the front area must stay plain with no side logo, no side text, no decals, and no invented badges. "
     "Never use a rear-facing or rear three-quarter product angle for ad generation. Keep the back panel and lower rear quadrant "
     "out of frame or fully occluded, and keep the rear silhouette clean and compact. Do not render any rectangular box mounted behind or below the seat; that area should read as "
     "open tubular frame, wheel shadow, or plain dark under-seat space. Prefer front, front three-quarter, or joystick-side front-profile framing. "
@@ -129,6 +133,8 @@ def get_product_reference_signature() -> str:
         "with a smooth wave-like contour under the armrest, large rear drive wheels with silver hub covers and red center caps, "
         "small black front casters with thin multi-spoke rims, black swing-away footrests and footplates, and a compact top-back area "
         "with no exaggerated rear rods, poles, or oversized push bars. "
+        "During forward motion, the small front caster assembly should be rotated 180 degrees around its vertical swivel axis from a reversed orientation, with the wheel axle/center behind the vertical pivot and trailing toward the chair body; the fork/yoke arms extend backward from the vertical stem to grip the small wheel from its rear/side-rear position. "
+        "The side of the wheelchair should remain plain with no side logo, side text, decals, or invented badges; any brand logo belongs only on the rear/back panel area. "
         "Do not replace it with a generic rehab wheelchair, molded shell chair, thick-spoke manual chair, or a different frame shape. "
         "Keep the same proportions, frame geometry, wheel layout, armrest shape, controller placement, side housing, and wheel hubs as the real product photos. "
         f"{PRODUCT_VISUAL_EXCLUSION_RULES}"
@@ -205,6 +211,12 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
         "folded or collapsed configurations",
         "extra protruding rods, poles, antenna-like parts, or exaggerated push bars behind the backrest",
         "overstated rear-handle geometry that extends far above the backrest",
+        "front caster forks pointing forward ahead of the wheel during forward motion",
+        "front caster wheel axle/center placed ahead of the vertical swivel pivot",
+        "front caster fork/yoke arms projecting forward instead of extending backward from the vertical stem",
+        "cartoon, animation, anime, illustration, 3D render, CGI, game asset, or stylized synthetic look",
+        "side logos, side text, decals, or invented badges on the wheelchair",
+        "changed front/rear wheel appearance, hub shape, tire thickness, spacing, or size ratio",
     ]:
         if item not in must_avoid:
             must_avoid.append(item)

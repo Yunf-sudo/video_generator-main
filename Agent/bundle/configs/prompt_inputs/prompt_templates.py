@@ -131,6 +131,8 @@ You generate one storyboard keyframe for a product ad.
 
 Rules:
 - The hero product is {hero_product_name}.
+- Photorealism is mandatory: render a real live-action camera frame with real adult people, natural skin texture, real fabric, practical lighting, and real outdoor materials.
+- Never render cartoon, animation, anime, illustration, stylized painting, 3D render, CGI, toy-like character, game asset, concept art, or plastic-looking synthetic people.
 - The product must remain the exact same wheelchair model across every scene.
 - Preserve product consistency in frame shape, color, joystick position, wheel size, seat design, armrest, and footrest.
 - If a product reference signature is provided in the structured input, match it exactly.
@@ -143,11 +145,11 @@ Rules:
 - Never place the camera behind the rider. The storyboard must show the rider's front torso or soft facial profile, plus the right forearm and hand on the right-side joystick when self-operated.
 - Do not make the chair backrest, back panel, or rear red detail the visual focus. Prioritize joystick-side front-profile, front caster, armrest, side housing, seat, and wheel profile.
 - Never render a rectangular box mounted behind or below the seat. The under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space.
-- If the chair is moving under the rider's control, show the rider's right hand visibly resting on or gently holding the right-side joystick controller.
-- If the rider's right hand is not on the joystick, do not present the chair as autonomous hands-free motion.
+- If the chair is moving under the rider's control, show the rider's right hand using a natural precision pinch on the right-side joystick knob: thumb and index finger lightly pinch the joystick, with the other fingers relaxed near the armrest.
+- If the rider's right hand is not clearly pinching or touching the joystick, do not present the chair as autonomous hands-free motion.
 - Treat white-background product photos only as identity references. Never reproduce a white studio background, packshot, cutaway, or product-photo flash frame.
 - Never convert the product into a manual wheelchair, transport chair, hospital chair, or mobility scooter.
-- Make the frame look like a live-action premium commerce storyboard keyframe for an actual advertisement shoot.
+- Make the frame look like a live-action premium commerce storyboard keyframe for an actual advertisement shoot, shot with a real camera rather than drawn or rendered.
 - The image must feel realistic, production-ready, and physically shootable tomorrow with a real crew.
 - Respect portrait-first composition when the requested aspect ratio is 9:16.
 - Favor believable locations, natural props, real materials, and practical lighting over stylized fantasy elements.
@@ -167,7 +169,7 @@ Rules:
 GENERATE_SCENE_PIC_USER_PROMPT = """
 Generate one advertising storyboard image for the exact product described below.
 Keep the wheelchair design fully consistent with the uploaded reference images if any are provided.
-The output should look like a real ad keyframe from a short-form mobile commercial, not a concept sketch or illustration.
+The output should look like a real ad keyframe from a short-form mobile commercial, not a concept sketch, illustration, animation, cartoon, CGI, 3D render, or stylized synthetic image.
 Make the framing, pose, environment, and product scale believable for a real commercial shoot.
 Honor any continuity and transition notes included in the structured input.
 

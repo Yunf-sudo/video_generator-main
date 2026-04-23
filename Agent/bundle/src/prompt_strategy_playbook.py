@@ -62,7 +62,7 @@ ERROR_EXAMPLES: list[dict[str, str]] = [
     {
         "label": "手没碰摇杆却自动行驶",
         "symptom": "轮椅自己跑，操控逻辑不可信。",
-        "prompt_fix": "During self-operated motion, keep the rider's right hand on the right-side joystick and avoid hands-free driving.",
+        "prompt_fix": "During self-operated motion, keep the rider's right hand on the right-side joystick with thumb and index finger lightly pinching the joystick knob; avoid hands-free driving, clenched fists, flat palms, or vague contact.",
     },
     {
         "label": "白底参考图混进广告画面",
@@ -73,6 +73,31 @@ ERROR_EXAMPLES: list[dict[str, str]] = [
         "label": "视频运动时结构变形",
         "symptom": "动起来后轮椅、人物或背景发生 morph、重置、拉扯。",
         "prompt_fix": "Avoid morphing, warped anatomy, product drift, jumpy continuity, and sudden scene resets during motion.",
+    },
+    {
+        "label": "前轮前叉方向错误",
+        "symptom": "前进时小前轮的前叉朝前，像反装或被模型画错。",
+        "prompt_fix": "During forward motion, rotate each front caster assembly 180 degrees around its vertical swivel axis from the reversed orientation: the vertical pivot sits ahead, the small wheel axle/center trails behind the pivot toward the chair body, and the two fork/yoke arms extend backward from the vertical stem to grip the wheel from its rear/side-rear position. Never draw fork arms projecting forward.",
+    },
+    {
+        "label": "摇杆手势不清楚",
+        "symptom": "右手握成拳、手掌盖住摇杆、手指悬空，操控感不真实。",
+        "prompt_fix": "Show the rider's right hand using a natural precision pinch on the right-side joystick: thumb and index finger lightly pinching the joystick knob, other fingers relaxed near the armrest.",
+    },
+    {
+        "label": "侧边多出logo文字",
+        "symptom": "轮椅侧面、轮子、扶手或车架上出现品牌字、贴纸或假标。",
+        "prompt_fix": "Keep the wheelchair side panels, side frame, armrests, wheels, and front area plain with no side logo, no side text, no decals, and no invented badges; the brand mark belongs only on the rear/back panel area.",
+    },
+    {
+        "label": "前后轮比例漂移",
+        "symptom": "前轮、后轮、轮毂、胎宽或间距和参考图不一致。",
+        "prompt_fix": "Preserve the reference wheel layout exactly: small black front casters, larger rear drive wheels, matching hub covers, tire thickness, spacing, and front/rear size ratio.",
+    },
+    {
+        "label": "画面变成动画片",
+        "symptom": "人物、环境或产品变成卡通、插画、3D、CGI或游戏资产风格。",
+        "prompt_fix": "Photorealistic live-action only: real camera frame, real adult people, natural skin texture, real fabric, practical lighting, and real outdoor materials. No cartoon, animation, anime, illustration, stylized painting, 3D render, CGI, toy-like character, game asset, or plastic-looking synthetic people.",
     },
 ]
 

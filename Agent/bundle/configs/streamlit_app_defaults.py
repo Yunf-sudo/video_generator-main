@@ -35,6 +35,16 @@ VIDEO_ORIENTATION_OPTIONS = [
 ]
 
 
+PRODUCT_GEOMETRY_NOTES = (
+    "Product geometry calibration for the AnyWell reference wheelchair:\n"
+    "- Use the exact same wheelchair model in every scene and every shot, matching the uploaded white-background reference photos.\n"
+    "- Front caster fork direction rule: when the wheelchair moves forward, each front caster assembly must be rotated 180 degrees around its vertical swivel axis from the wrong forward-facing orientation. The vertical swivel stem/pivot sits ahead. The two fork/yoke arms must extend backward from that vertical stem toward the chair body, gripping the small wheel from its rear/side-rear position. The small caster wheel axle/center trails behind the pivot; never draw the fork arms projecting forward in front of the small wheel, and never place the wheel center ahead of the pivot.\n"
+    "- Wheel proportion rule: preserve the reference wheel layout, with small black front casters and larger rear drive wheels. Keep the rear drive wheels, front casters, hub covers, tire thickness, spacing, and size ratio consistent with the reference photos.\n"
+    "- Logo placement rule: the AnyWell brand mark/logo belongs only on the rear/back panel area. Side panels, side frame, armrests, wheels, and front area must stay plain with no side logo, no side text, no decals, and no invented badges.\n"
+    "- Keep the same metallic silver-gray tubular frame, black armrests, black seat/backrest, right-side joystick, dark gray side housing, footrests, and open riding silhouette across all three shots."
+)
+
+
 DEFAULT_INPUTS = {
     # 产品名称：最终会进入脚本、分镜图、视频提示词。
     "product_name": "AnyWell 电动轮椅",
@@ -55,17 +65,19 @@ DEFAULT_INPUTS = {
     # 自定义风格说明：如果你想覆盖模板默认描述，可以直接改这里。
     "custom_style_notes": STYLE_PRESETS["家庭关怀型"],
     # 风格语气：决定整体广告是温暖、理性、克制还是更偏转化。
-    "style_tone": "温暖、克制、真实、电影感，避免煽情和医疗化表达",
+    "style_tone": "温暖、克制、真实、电影感，必须是真人实拍广告照片质感，避免动画、卡通、插画、3D渲染、CGI、游戏感和医疗化表达",
     # 产品一致性锚点：这里写“必须保持一致”的硬约束，尤其适合产品结构和造型。
     "consistency_anchor": "Match the same AnyWell electric wheelchair across all scenes: consistent frame, armrest, footrest, wheel size, right-side joystick, seat cushion, and side housing. Keep the rear/top-back structure compact and proportional to the real product. Do not invent extra rods, poles, antenna-like parts, cane-like extensions, or exaggerated push bars behind the backrest. Do not show a rear/lower battery pack, exposed cable, folded state, or storage configuration.",
+    # 产品几何校准：专门写轮椅结构、logo 位置、前后轮比例、前叉方向等画面细节。
+    "product_geometry_notes": PRODUCT_GEOMETRY_NOTES,
     # 补充说明：这里适合写人物一致性、操作逻辑、禁忌事项等。
-    "additional_info": "The rider should be the same dignified heavyset or plus-size Western senior across all scenes, clearly broader than an average or slightly stocky build. Show a broad torso and shoulders, rounded belly under normal clothing, thicker arms and legs, and a seated posture that naturally fills the wheelchair seat. Keep body type, wardrobe, posture, and identity consistent. During self-operated motion, the right hand should remain on the right-side joystick. Do not present the chair as autonomous hands-free motion. If short integrated rear handles are naturally visible, keep them subtle, short, close to the backrest, and never the visual focus. White-background product photos are identity references only and must never appear as ad frames or flash cuts.",
+    "additional_info": "The rider should be the same dignified heavyset or plus-size Western senior across all scenes, clearly broader than an average or slightly stocky build. Show a broad torso and shoulders, rounded belly under normal clothing, thicker arms and legs, and a seated posture that naturally fills the wheelchair seat. Keep body type, wardrobe, posture, and identity consistent. During self-operated motion, the rider's right hand should control the right-side joystick with a natural precision pinch: thumb and index finger lightly pinching the joystick knob, other fingers relaxed near the armrest. Do not use a clenched fist, flat palm, floating hand, or hands-free autonomous motion. If short integrated rear handles are naturally visible, keep them subtle, short, close to the backrest, and never the visual focus. White-background product photos are identity references only and must never appear as ad frames or flash cuts.",
     # 场景描述补充：会和每个场景脚本一起打包给 AI，用于强化整体世界观和路线感。
     "prompt_scene_description_notes": "Keep every scene grounded in one coherent outdoor route and make the wheelchair feel naturally integrated into everyday life.",
     # 特殊点强调：这里写你最想让模型额外重视的卖点或画面重点。
     "prompt_special_emphasis": "Emphasize product realism, continuity of the same rider and wheelchair, confident self-operated movement, and conversion-ready product readability.",
-    # 易出错点补充：这里写模型常见错误，系统还会叠加代码里的默认错误模块。
-    "prompt_error_notes": "- Avoid rear battery-pack exposure.\n- Avoid invented rear poles or exaggerated push handles.\n- Avoid body-type drift for the same rider.\n- Avoid white-background reference-photo look.\n- Avoid hands-free motion when the rider is self-operating.",
+    # 易出错点补充：这里只写你明确填写或勾选的错误约束。
+    "prompt_error_notes": "- Avoid rear battery-pack exposure.\n- Avoid invented rear poles or exaggerated push handles.\n- Avoid body-type drift for the same rider.\n- Avoid white-background reference-photo look.\n- Avoid cartoon, animation, anime, illustration, stylized painting, 3D render, CGI, toy-like character, game asset, or plastic-looking synthetic people.\n- Avoid hands-free motion when the rider is self-operating.\n- Avoid wrong joystick grip: the right hand should not use a fist, flat palm, floating fingers, or vague contact; thumb and index finger should lightly pinch the joystick knob.\n- Avoid front caster forks pointing forward during forward motion; the fork/yoke arms must extend backward from the vertical stem toward the chair body, gripping the small wheel from its rear/side-rear position, with the wheel axle/center behind the pivot.\n- Avoid side logos, side text, decals, or invented badges on the wheelchair.\n- Avoid changing the front/rear wheel appearance, hub shape, tire thickness, spacing, or size ratio from the reference photos.",
     # 输出语言：必须来自 LANGUAGE_OPTIONS。
     "language": "English",
     # 视频画幅：必须来自 VIDEO_ORIENTATION_OPTIONS。

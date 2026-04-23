@@ -28,9 +28,9 @@ DEFAULT_SCRIPT_MODEL = os.getenv(
     "SCRIPT_MODEL",
     str(RUNTIME_TUNABLES["model_config"].get("script_model") or DEFAULT_TEXT_MODEL),
 )
-FIXED_DESIRED_SCENE_COUNT = 3
-FIXED_PREFERRED_RUNTIME_SECONDS = 18
-FIXED_SCENE_DURATION_SECONDS = 6
+DEFAULT_DESIRED_SCENE_COUNT = 3
+DEFAULT_PREFERRED_RUNTIME_SECONDS = 18
+DEFAULT_SCENE_DURATION_SECONDS = 6
 
 SCRIPT_JSON_SCHEMA = {
     "type": "object",
@@ -132,7 +132,25 @@ def _loads_script_json(content: str):
     raise ValueError(f"Unable to parse script JSON: {last_error}. Response preview: {preview}")
 
 
-def _coerce_scene_dict(scene, index: int) -> dict:
+def _safe_positive_int(value, default: int) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return default
+    return normalized if normalized > 0 else default
+
+
+def _default_scene_duration_seconds(params: dict | None = None) -> int:
+    params = params or {}
+    desired_scene_count = _safe_positive_int(params.get("desired_scene_count"), DEFAULT_DESIRED_SCENE_COUNT)
+    preferred_runtime_seconds = _safe_positive_int(
+        params.get("preferred_runtime_seconds"),
+        DEFAULT_PREFERRED_RUNTIME_SECONDS,
+    )
+    return max(1, round(preferred_runtime_seconds / max(1, desired_scene_count)))
+
+
+def _coerce_scene_dict(scene, index: int, default_scene_duration_seconds: int = DEFAULT_SCENE_DURATION_SECONDS) -> dict:
     if isinstance(scene, str):
         try:
             scene = _loads_script_json(scene)
@@ -174,13 +192,16 @@ def _coerce_scene_dict(scene, index: int) -> dict:
     scene["visuals"] = visuals
     scene["scene_number"] = int(scene.get("scene_number") or index)
     scene.setdefault("theme", f"Scene {index}")
-    scene.setdefault("duration_seconds", FIXED_SCENE_DURATION_SECONDS)
+    scene["duration_seconds"] = _safe_positive_int(
+        scene.get("duration_seconds"),
+        default_scene_duration_seconds,
+    )
     scene.setdefault("scene_description", "")
     scene.setdefault("key_message", "")
     return scene
 
 
-def _normalize_script_json(script_json) -> dict:
+def _normalize_script_json(script_json, default_scene_duration_seconds: int = DEFAULT_SCENE_DURATION_SECONDS) -> dict:
     if isinstance(script_json, str):
         script_json = _loads_script_json(script_json)
 
@@ -203,19 +224,25 @@ def _normalize_script_json(script_json) -> dict:
     else:
         raise TypeError(f"Script JSON must be an object or list, got {type(script_json).__name__}")
 
-    root["scenes"] = [_coerce_scene_dict(scene, index) for index, scene in enumerate(root.get("scenes", []), start=1)]
+    root["scenes"] = [
+        _coerce_scene_dict(scene, index, default_scene_duration_seconds=default_scene_duration_seconds)
+        for index, scene in enumerate(root.get("scenes", []), start=1)
+    ]
     return root
 
 
-def _enforce_scene_count(script_json: dict, desired_scene_count: int = FIXED_DESIRED_SCENE_COUNT) -> dict:
+def _normalize_scene_sequence(
+    script_json: dict,
+    default_scene_duration_seconds: int = DEFAULT_SCENE_DURATION_SECONDS,
+) -> dict:
     scenes = list(script_json.get("scenes", []))
-    if len(scenes) < desired_scene_count:
-        raise ValueError(f"Script generation returned {len(scenes)} scenes; expected {desired_scene_count}.")
-    trimmed_scenes = scenes[:desired_scene_count]
-    for index, scene in enumerate(trimmed_scenes, start=1):
+    for index, scene in enumerate(scenes, start=1):
         scene["scene_number"] = index
-        scene["duration_seconds"] = FIXED_SCENE_DURATION_SECONDS
-    script_json["scenes"] = trimmed_scenes
+        scene["duration_seconds"] = _safe_positive_int(
+            scene.get("duration_seconds"),
+            default_scene_duration_seconds,
+        )
+    script_json["scenes"] = scenes
     return script_json
 
 
@@ -230,7 +257,10 @@ def _create_script_completion(messages: list[dict]) -> str:
     return extract_response_text(response)
 
 
-def _script_json_from_messages(messages: list[dict]) -> tuple[dict, list[dict]]:
+def _script_json_from_messages(
+    messages: list[dict],
+    default_scene_duration_seconds: int = DEFAULT_SCENE_DURATION_SECONDS,
+) -> tuple[dict, list[dict]]:
     assistant_content = _create_script_completion(messages)
     first_messages = [
         *messages,
@@ -240,7 +270,13 @@ def _script_json_from_messages(messages: list[dict]) -> tuple[dict, list[dict]]:
         },
     ]
     try:
-        return _normalize_script_json(_loads_script_json(assistant_content)), first_messages
+        return (
+            _normalize_script_json(
+                _loads_script_json(assistant_content),
+                default_scene_duration_seconds=default_scene_duration_seconds,
+            ),
+            first_messages,
+        )
     except Exception:
         retry_messages = [
             *first_messages,
@@ -249,55 +285,96 @@ def _script_json_from_messages(messages: list[dict]) -> tuple[dict, list[dict]]:
                 "content": (
                     "Convert your previous answer into one raw valid JSON object only. "
                     'The root object must contain "main_theme" and "scenes". '
-                    f"Every scene duration should be {FIXED_SCENE_DURATION_SECONDS} seconds."
+                    "Every scene must include an integer duration_seconds field."
                 ),
             },
         ]
         retry_content = _create_script_completion(retry_messages)
         retry_messages.append({"role": "assistant", "content": retry_content})
-        return _normalize_script_json(_loads_script_json(retry_content)), retry_messages
+        return (
+            _normalize_script_json(
+                _loads_script_json(retry_content),
+                default_scene_duration_seconds=default_scene_duration_seconds,
+            ),
+            retry_messages,
+        )
 
 
-def generate_scripts(params: dict) -> tuple[dict, list[dict]]:
+def build_script_messages(
+    params: dict,
+    system_prompt_override: str | None = None,
+    user_prompt_override: str | None = None,
+    translate_inputs: bool = True,
+) -> tuple[list[dict], dict, dict]:
     source_params = dict(params)
-    source_params["desired_scene_count"] = FIXED_DESIRED_SCENE_COUNT
-    source_params["preferred_runtime_seconds"] = FIXED_PREFERRED_RUNTIME_SECONDS
-    enriched_params = translate_inputs_to_english(source_params)
-    enriched_params["desired_scene_count"] = FIXED_DESIRED_SCENE_COUNT
-    enriched_params["preferred_runtime_seconds"] = FIXED_PREFERRED_RUNTIME_SECONDS
+    source_params["desired_scene_count"] = _safe_positive_int(
+        source_params.get("desired_scene_count"),
+        DEFAULT_DESIRED_SCENE_COUNT,
+    )
+    source_params["preferred_runtime_seconds"] = _safe_positive_int(
+        source_params.get("preferred_runtime_seconds"),
+        DEFAULT_PREFERRED_RUNTIME_SECONDS,
+    )
+    if translate_inputs:
+        enriched_params = translate_inputs_to_english(source_params)
+        enriched_params["desired_scene_count"] = source_params["desired_scene_count"]
+        enriched_params["preferred_runtime_seconds"] = source_params["preferred_runtime_seconds"]
+    else:
+        enriched_params = dict(source_params)
     use_product_reference_images = bool(enriched_params.get("use_product_reference_images", True))
     enriched_params.setdefault(
         "product_visual_structure",
         get_product_visual_structure_json() if use_product_reference_images else "",
     )
     prompt_context = build_prompt_context(enriched_params)
-    user_prompt = apply_override(
+    rendered_user_prompt = apply_override(
         generate_script_user_prompt.format(**enriched_params, **prompt_context),
         "script_user_append",
+    )
+    rendered_system_prompt = apply_override(
+        generate_script_system_prompt.format(
+            reference_style=enriched_params.get("reference_style", "No external style reference provided."),
+            desired_scene_count=enriched_params.get("desired_scene_count", DEFAULT_DESIRED_SCENE_COUNT),
+            preferred_runtime_seconds=enriched_params.get(
+                "preferred_runtime_seconds",
+                DEFAULT_PREFERRED_RUNTIME_SECONDS,
+            ),
+            **prompt_context,
+        ),
+        "script_system_append",
     )
     messages = [
         {
             "role": "system",
-            "content": apply_override(
-                generate_script_system_prompt.format(
-                    reference_style=enriched_params.get("reference_style", "No external style reference provided."),
-                    desired_scene_count=enriched_params.get("desired_scene_count", 5),
-                    preferred_runtime_seconds=enriched_params.get(
-                        "preferred_runtime_seconds",
-                        FIXED_PREFERRED_RUNTIME_SECONDS,
-                    ),
-                    **prompt_context,
-                ),
-                "script_system_append",
-            ),
+            "content": str(system_prompt_override or rendered_system_prompt).strip(),
         },
         {
             "role": "user",
-            "content": user_prompt,
+            "content": str(user_prompt_override or rendered_user_prompt).strip(),
         },
     ]
-    json_ret, messages = _script_json_from_messages(messages)
-    json_ret = _enforce_scene_count(json_ret, FIXED_DESIRED_SCENE_COUNT)
+    return messages, enriched_params, source_params
+
+
+def generate_scripts(
+    params: dict,
+    system_prompt_override: str | None = None,
+    user_prompt_override: str | None = None,
+) -> tuple[dict, list[dict]]:
+    messages, enriched_params, source_params = build_script_messages(
+        params,
+        system_prompt_override=system_prompt_override,
+        user_prompt_override=user_prompt_override,
+    )
+    default_scene_duration_seconds = _default_scene_duration_seconds(enriched_params)
+    json_ret, messages = _script_json_from_messages(
+        messages,
+        default_scene_duration_seconds=default_scene_duration_seconds,
+    )
+    json_ret = _normalize_scene_sequence(
+        json_ret,
+        default_scene_duration_seconds=default_scene_duration_seconds,
+    )
     with_meta_ret = {
         "id": str(uuid.uuid4()),
         "version": 1,
@@ -309,10 +386,18 @@ def generate_scripts(params: dict) -> tuple[dict, list[dict]]:
     return with_meta_ret, messages
 
 
-def repair_script(messages: list[dict], feedback: str) -> tuple[dict, list[dict]]:
+def repair_script(messages: list[dict], feedback: str, params: dict | None = None) -> tuple[dict, list[dict]]:
     translated_feedback = translate_text_to_english(feedback)
     messages = [*messages, {"role": "user", "content": translated_feedback}]
-    json_ret, messages = _script_json_from_messages(messages)
+    default_scene_duration_seconds = _default_scene_duration_seconds(params or {})
+    json_ret, messages = _script_json_from_messages(
+        messages,
+        default_scene_duration_seconds=default_scene_duration_seconds,
+    )
+    json_ret = _normalize_scene_sequence(
+        json_ret,
+        default_scene_duration_seconds=default_scene_duration_seconds,
+    )
     with_meta_ret = {
         "id": str(uuid.uuid4()),
         "scenes": json_ret,

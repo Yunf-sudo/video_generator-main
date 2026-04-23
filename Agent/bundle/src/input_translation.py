@@ -36,6 +36,7 @@ TRANSLATABLE_INPUT_KEYS = [
     "custom_style_notes",
     "style_tone",
     "consistency_anchor",
+    "product_geometry_notes",
     "additional_info",
     "prompt_scene_description_notes",
     "prompt_special_emphasis",

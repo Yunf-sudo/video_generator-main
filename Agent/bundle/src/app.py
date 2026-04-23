@@ -15,10 +15,15 @@ from ad_management_agent import run_agent_once
 from ad_ops_config import load_ad_ops_config
 from app_defaults_config import load_app_defaults
 from asr import generate_srt_asset_from_audio
-from generate_scenes_pics_tools import generate_storyboard, repair_single_pic
-from generate_script_tools import generate_scripts, repair_script
-from generate_tts_audio import generate_tts_audio
-from generate_video_tools import generate_video_from_image_path, get_video_path_from_video_id
+from generate_scenes_pics_tools import (
+    build_storyboard_scene_request,
+    generate_storyboard,
+    generate_storyboard_scene,
+    repair_single_pic,
+)
+from generate_script_tools import build_script_messages, generate_scripts, repair_script
+from generate_tts_audio import build_voiceover_text, generate_tts_audio
+from generate_video_tools import build_video_prompt, generate_video_from_image_path, get_video_path_from_video_id
 from google_gemini_api import load_last_google_api_error_report
 from meta_ads_service import is_meta_dry_run_mode, is_meta_read_only_mode
 from meta_ads_service import has_meta_access_token, meta_access_token_source
@@ -516,6 +521,132 @@ def _safe_int(value, default: int = 999999) -> int:
         return default
 
 
+def _storyboard_prompt_overrides() -> dict[str, dict]:
+    raw = _coerce_dict(_coerce_dict(st.session_state.get("inputs")).get("storyboard_prompt_overrides"))
+    return {str(key): _coerce_dict(value) for key, value in raw.items()}
+
+
+def _video_prompt_overrides() -> dict[str, str]:
+    raw = _coerce_dict(_coerce_dict(st.session_state.get("inputs")).get("video_prompt_overrides"))
+    normalized: dict[str, str] = {}
+    for key, value in raw.items():
+        text = str(value or "").strip()
+        if text:
+            normalized[str(key)] = text
+    return normalized
+
+
+def _set_storyboard_prompt_override(scene_number: int, image_prompt: str, image_system_prompt: str) -> None:
+    overrides = _storyboard_prompt_overrides()
+    entry = {}
+    if str(image_prompt or "").strip():
+        entry["image_prompt"] = str(image_prompt).strip()
+    if str(image_system_prompt or "").strip():
+        entry["image_system_prompt"] = str(image_system_prompt).strip()
+    if entry:
+        overrides[str(scene_number)] = entry
+    else:
+        overrides.pop(str(scene_number), None)
+    st.session_state["inputs"]["storyboard_prompt_overrides"] = overrides
+
+
+def _set_video_prompt_override(scene_number: int, video_prompt: str) -> None:
+    overrides = _video_prompt_overrides()
+    prompt_text = str(video_prompt or "").strip()
+    if prompt_text:
+        overrides[str(scene_number)] = prompt_text
+    else:
+        overrides.pop(str(scene_number), None)
+    st.session_state["inputs"]["video_prompt_overrides"] = overrides
+
+
+def _storyboard_neighbor_reference_paths(scene_number: int) -> list[str]:
+    refs: list[str] = []
+    frame_map = {
+        _safe_int(frame.get("scene_number")): str(frame.get("saved_path") or "").strip()
+        for frame in ordered_storyboard()
+        if isinstance(frame, dict)
+    }
+    for candidate in (scene_number - 1, scene_number + 1):
+        path = frame_map.get(candidate, "")
+        if path:
+            refs.append(path)
+    return refs
+
+
+def _previous_video_reference_frame(scene_number: int) -> str | None:
+    previous_key = str(scene_number - 1)
+    previous_result = _coerce_dict(st.session_state.get("video_result", {})).get(previous_key, {})
+    if isinstance(previous_result, dict):
+        previous_last_frame = str(previous_result.get("last_frame_path") or "").strip()
+        if previous_last_frame:
+            return previous_last_frame
+    previous_storyboard = {
+        str(frame.get("scene_number")): frame
+        for frame in ordered_storyboard()
+        if isinstance(frame, dict)
+    }.get(previous_key, {})
+    if isinstance(previous_storyboard, dict):
+        saved_path = str(previous_storyboard.get("saved_path") or "").strip()
+        if saved_path:
+            return saved_path
+    return None
+
+
+def _upsert_storyboard_frame(frame: dict) -> None:
+    scene_number = _safe_int(frame.get("scene_number"), default=-1)
+    frames = ordered_storyboard()
+    updated = False
+    for index, current in enumerate(frames):
+        if _safe_int(current.get("scene_number"), default=-1) == scene_number:
+            frames[index] = frame
+            updated = True
+            break
+    if not updated:
+        frames.append(frame)
+    st.session_state["storyboard"] = sorted(
+        frames,
+        key=lambda item: _safe_int(item.get("scene_number") or item.get("scene_id")),
+    )
+
+
+def _collect_storyboard_prompt_overrides(script: dict | None = None) -> dict[str, dict]:
+    overrides = _storyboard_prompt_overrides()
+    for scene in scene_list(script or st.session_state.get("script")):
+        scene_key = str(scene.get("scene_number") or "")
+        prompt_key = f"storyboard_prompt_editor_{scene_key}"
+        system_key = f"storyboard_system_prompt_editor_{scene_key}"
+        if prompt_key not in st.session_state and system_key not in st.session_state:
+            continue
+        entry = {}
+        prompt_text = str(st.session_state.get(prompt_key) or "").strip()
+        system_text = str(st.session_state.get(system_key) or "").strip()
+        if prompt_text:
+            entry["image_prompt"] = prompt_text
+        if system_text:
+            entry["image_system_prompt"] = system_text
+        if entry:
+            overrides[scene_key] = entry
+        else:
+            overrides.pop(scene_key, None)
+    return overrides
+
+
+def _collect_video_prompt_overrides() -> dict[str, str]:
+    overrides = _video_prompt_overrides()
+    for frame in ordered_storyboard():
+        scene_key = str(frame.get("scene_number") or "")
+        prompt_key = f"video_prompt_editor_{scene_key}"
+        if prompt_key not in st.session_state:
+            continue
+        prompt_text = str(st.session_state.get(prompt_key) or "").strip()
+        if prompt_text:
+            overrides[scene_key] = prompt_text
+        else:
+            overrides.pop(scene_key, None)
+    return overrides
+
+
 def _material_time_label(item: dict) -> str:
     return str(item.get("updated_at") or item.get("created_at") or "").replace("T", " ")[:19]
 
@@ -736,10 +867,17 @@ def reset_downstream(from_stage: str) -> None:
         persist_run_json("capcut_result.json", None)
 
 
-def generate_script_step() -> None:
+def generate_script_step(
+    system_prompt_override: str | None = None,
+    user_prompt_override: str | None = None,
+) -> None:
     current_run_paths()
     persist_current_brief()
-    script, messages = generate_scripts(st.session_state["inputs"])
+    script, messages = generate_scripts(
+        st.session_state["inputs"],
+        system_prompt_override=system_prompt_override,
+        user_prompt_override=user_prompt_override,
+    )
     st.session_state["script"] = script
     st.session_state["script_chat_messages"] = messages
     st.session_state["active_step"] = "广告脚本"
@@ -750,10 +888,14 @@ def generate_script_step() -> None:
 
 def generate_storyboard_step() -> None:
     current_run_paths()
+    storyboard_overrides = _collect_storyboard_prompt_overrides(st.session_state.get("script"))
+    st.session_state["inputs"]["storyboard_prompt_overrides"] = storyboard_overrides
+    persist_current_brief()
     storyboard = generate_storyboard(
         st.session_state["script"],
         reference_image_paths=st.session_state.get("reference_image_paths", []),
         aspect_ratio=st.session_state["inputs"]["video_orientation"],
+        prompt_overrides=storyboard_overrides,
     )
     st.session_state["storyboard"] = storyboard
     st.session_state["active_step"] = "视频片段"
@@ -766,6 +908,9 @@ def submit_all_missing_clips() -> None:
     frames = ordered_storyboard()
     current_results = copy.deepcopy(st.session_state.get("video_result", {}))
     last_reference_frame = None
+    prompt_overrides = _collect_video_prompt_overrides()
+    st.session_state["inputs"]["video_prompt_overrides"] = prompt_overrides
+    persist_current_brief()
 
     for frame in frames:
         scene_key = str(frame["scene_number"])
@@ -785,6 +930,8 @@ def submit_all_missing_clips() -> None:
             aspect_ratio=st.session_state["inputs"]["video_orientation"],
             duration_seconds=frame.get("duration_seconds", 8),
             force_local=False,
+            meta=st.session_state.get("inputs"),
+            prompt_override=prompt_overrides.get(scene_key),
         )
         current_results[scene_key] = clip_result
         last_reference_frame = frame["saved_path"]
@@ -799,6 +946,9 @@ def resolve_all_pending_clips() -> None:
     current_run_paths()
     current_results = copy.deepcopy(st.session_state.get("video_result", {}))
     last_reference_frame = None
+    prompt_overrides = _collect_video_prompt_overrides()
+    st.session_state["inputs"]["video_prompt_overrides"] = prompt_overrides
+    persist_current_brief()
     for frame in ordered_storyboard():
         scene_key = str(frame["scene_number"])
         current = current_results.get(scene_key, {})
@@ -821,6 +971,8 @@ def resolve_all_pending_clips() -> None:
                 aspect_ratio=st.session_state["inputs"]["video_orientation"],
                 duration_seconds=frame.get("duration_seconds", 8),
                 force_local=False,
+                meta=st.session_state.get("inputs"),
+                prompt_override=current.get("video_prompt") or prompt_overrides.get(scene_key),
             )
         refreshed["planned_duration_seconds"] = current.get("planned_duration_seconds", frame.get("duration_seconds", 8))
         current_results[scene_key] = refreshed
@@ -838,9 +990,12 @@ def generate_metadata_step() -> None:
     persist_run_json("ti_intro.json", ti_intro)
 
 
-def generate_tts_step() -> None:
+def generate_tts_step(text_override: str | None = None) -> None:
     current_run_paths()
-    audio_url, file_path, duration = generate_tts_audio(st.session_state["script"])
+    audio_url, file_path, duration = generate_tts_audio(
+        st.session_state["script"],
+        text_override=str(text_override or "").strip(),
+    )
     if not file_path:
         raise RuntimeError("没有拿到配音文件。")
     st.session_state["tts_result"] = {
@@ -849,6 +1004,7 @@ def generate_tts_step() -> None:
         "file_path": file_path,
         "duration_seconds": duration,
         "duration": duration,
+        "text_override": str(text_override or "").strip(),
     }
     st.session_state["active_step"] = "配音字幕"
     persist_run_json("tts_result.json", st.session_state["tts_result"])
@@ -884,7 +1040,7 @@ def ensure_audio_and_subtitles_ready() -> None:
 
     tts_result = _coerce_dict(st.session_state.get("tts_result"))
     if not (tts_result.get("file_path") or tts_result.get("audio_url")):
-        generate_tts_step()
+        generate_tts_step(text_override=st.session_state.get("inputs", {}).get("tts_text_override"))
         tts_result = _coerce_dict(st.session_state.get("tts_result"))
 
     if not tts_result.get("srt_path"):
@@ -954,7 +1110,7 @@ def run_full_pipeline() -> None:
     resolve_all_pending_clips()
     generate_metadata_step()
     if not USE_GENERATED_VIDEO_AUDIO:
-        generate_tts_step()
+        generate_tts_step(text_override=st.session_state.get("inputs", {}).get("tts_text_override"))
         generate_subtitles_step()
     export_formal_video_step()
 
@@ -1108,27 +1264,25 @@ def render_brief_tab() -> None:
             else 0,
             key=_brief_widget_key("language"),
         )
-        st.session_state["inputs"]["desired_scene_count"] = 3
         desired_scene_count_key = _brief_widget_key("desired_scene_count")
-        if st.session_state.get(desired_scene_count_key) != 3:
-            st.session_state[desired_scene_count_key] = 3
-        desired_scene_count = st.selectbox(
+        desired_scene_count = st.number_input(
             "可编辑 | 目标场景数",
-            options=[3],
-            index=0,
+            min_value=1,
+            max_value=12,
+            step=1,
+            value=int(st.session_state["inputs"].get("desired_scene_count") or 3),
             key=desired_scene_count_key,
-            help="当前项目固定为 3 个场景。",
+            help="作为本次脚本规划目标，不再做程序级硬性裁切。",
         )
-        st.session_state["inputs"]["preferred_runtime_seconds"] = 18
         preferred_runtime_seconds_key = _brief_widget_key("preferred_runtime_seconds")
-        if st.session_state.get(preferred_runtime_seconds_key) != 18:
-            st.session_state[preferred_runtime_seconds_key] = 18
-        preferred_runtime_seconds = st.selectbox(
+        preferred_runtime_seconds = st.number_input(
             "可编辑 | 目标总时长（秒）",
-            options=[18],
-            index=0,
+            min_value=4,
+            max_value=120,
+            step=1,
+            value=int(st.session_state["inputs"].get("preferred_runtime_seconds") or 18),
             key=preferred_runtime_seconds_key,
-            help="当前项目固定为约 18 秒，3 个场景，每个场景约 6 秒。",
+            help="作为本次脚本和节奏规划目标，不再固定到某个时长模板。",
         )
     with input_right:
         core_selling_points = st.text_area(
@@ -1162,9 +1316,19 @@ def render_brief_tab() -> None:
         )
         consistency_anchor = st.text_area(
             "可编辑 | 产品一致性锚点",
-            value=st.session_state["inputs"]["consistency_anchor"],
+            value=st.session_state["inputs"].get("consistency_anchor", DEFAULT_INPUTS.get("consistency_anchor", "")),
             height=110,
             key=_brief_widget_key("consistency_anchor"),
+        )
+        product_geometry_notes = st.text_area(
+            "可编辑 | 产品几何校准",
+            value=st.session_state["inputs"].get(
+                "product_geometry_notes",
+                DEFAULT_INPUTS.get("product_geometry_notes", ""),
+            ),
+            height=170,
+            key=_brief_widget_key("product_geometry_notes"),
+            help="专门约束前叉方向、logo 位置、前后轮比例、车架和参考图一致性，会作为独立高权重块进入分镜图和视频提示词。",
         )
         additional_info = st.text_area(
             "可编辑 | 补充说明",
@@ -1247,7 +1411,7 @@ def render_brief_tab() -> None:
             value=_prompt_manual_default("prompt_error_notes_manual"),
             height=140,
             key=_brief_widget_key("prompt_error_notes_manual"),
-            help="这里补项目特有的翻车点。系统还会叠加代码里的默认错误约束。",
+            help="这里补项目特有的翻车点。只会写入你明确填写或勾选的内容。",
         )
 
     prompt_preview = _build_prompt_editor_preview(
@@ -1285,6 +1449,7 @@ def render_brief_tab() -> None:
             "custom_style_notes": custom_style_notes or STYLE_PRESETS[style_preset],
             "style_tone": style_tone,
             "consistency_anchor": consistency_anchor,
+            "product_geometry_notes": product_geometry_notes,
             "additional_info": additional_info,
             "prompt_scene_description_notes": prompt_preview["prompt_scene_description_notes"],
             "prompt_special_emphasis": prompt_preview["prompt_special_emphasis"],
@@ -1328,19 +1493,49 @@ def render_brief_tab() -> None:
 
 def render_script_tab() -> None:
     st.subheader("2. 广告脚本")
-    top_cols = st.columns([1, 1.2])
-    if top_cols[0].button("生成广告脚本", use_container_width=True):
+    prompt_preview_messages, _, _ = build_script_messages(
+        st.session_state["inputs"],
+        translate_inputs=False,
+    )
+    default_system_prompt = str(prompt_preview_messages[0]["content"] or "")
+    default_user_prompt = str(prompt_preview_messages[1]["content"] or "")
+
+    st.write("这里可以直接修改本阶段实际提交给模型的提示词，然后生成或重生成脚本。")
+    prompt_cols = st.columns(2)
+    with prompt_cols[0]:
+        script_system_prompt = st.text_area(
+            "可编辑 | 脚本 System Prompt",
+            value=str(st.session_state["inputs"].get("script_system_prompt_override") or default_system_prompt),
+            height=280,
+            key=_brief_widget_key("script_system_prompt_override_editor"),
+        )
+    with prompt_cols[1]:
+        script_user_prompt = st.text_area(
+            "可编辑 | 脚本 User Prompt",
+            value=str(st.session_state["inputs"].get("script_user_prompt_override") or default_user_prompt),
+            height=320,
+            key=_brief_widget_key("script_user_prompt_override_editor"),
+        )
+
+    if st.button("按当前提示词生成脚本", use_container_width=True):
+        st.session_state["inputs"]["script_system_prompt_override"] = str(script_system_prompt or "").strip()
+        st.session_state["inputs"]["script_user_prompt_override"] = str(script_user_prompt or "").strip()
+        persist_current_brief()
         with st.spinner("正在生成电动轮椅广告脚本..."):
             try:
-                generate_script_step()
+                generate_script_step(
+                    system_prompt_override=script_system_prompt,
+                    user_prompt_override=script_user_prompt,
+                )
                 st.success("脚本已生成。")
+                st.rerun()
             except Exception as exc:
                 _display_generation_error("脚本生成失败", exc)
 
     script = st.session_state.get("script")
     scenes = scene_list(script)
     if not scenes:
-        st.info("请先生成脚本。")
+        st.info("请先确认上面的脚本提示词，然后生成脚本。")
         return
 
     scenes_root = script.get("scenes", {}) if isinstance(script, dict) else {}
@@ -1379,7 +1574,11 @@ def render_script_tab() -> None:
     if submitted and feedback.strip():
         with st.spinner("正在修改脚本..."):
             try:
-                updated_script, updated_messages = repair_script(st.session_state["script_chat_messages"], feedback.strip())
+                updated_script, updated_messages = repair_script(
+                    st.session_state["script_chat_messages"],
+                    feedback.strip(),
+                    params=st.session_state["inputs"],
+                )
                 updated_script["meta"] = copy.deepcopy(st.session_state["script"].get("meta", {}))
                 updated_script["history"] = copy.deepcopy(st.session_state["script"].get("history", []))
                 updated_script["history"].append(feedback.strip())
@@ -1396,7 +1595,8 @@ def render_script_tab() -> None:
 
 def render_storyboard_tab() -> None:
     st.subheader("3. 分镜图")
-    if not st.session_state.get("script"):
+    script = st.session_state.get("script")
+    if not script:
         st.info("请先生成脚本。")
         return
 
@@ -1408,47 +1608,115 @@ def render_storyboard_tab() -> None:
             except Exception as exc:
                 _display_generation_error("分镜图生成失败", exc)
 
-    frames = ordered_storyboard()
-    if not frames:
-        st.info("先生成分镜图。")
+    scenes = scene_list(script)
+    if not scenes:
+        st.info("脚本里还没有可用场景。")
         return
 
-    for frame in frames:
+    frames_by_scene = {
+        str(frame.get("scene_number")): frame
+        for frame in ordered_storyboard()
+        if isinstance(frame, dict)
+    }
+    prompt_overrides = _storyboard_prompt_overrides()
+
+    for scene in scenes:
+        scene_number = _safe_int(scene.get("scene_number"), default=0)
+        scene_key = str(scene_number)
+        frame = frames_by_scene.get(scene_key, {})
+        override_entry = _coerce_dict(prompt_overrides.get(scene_key))
+        request = build_storyboard_scene_request(
+            scene_info=script,
+            scene_number=scene_number,
+            reference_image_paths=st.session_state.get("reference_image_paths", []),
+            aspect_ratio=st.session_state["inputs"]["video_orientation"],
+            continuity_reference_paths=_storyboard_neighbor_reference_paths(scene_number),
+            prompt_override=override_entry.get("image_prompt"),
+            system_prompt_override=override_entry.get("image_system_prompt"),
+            allow_ai_composer=False,
+        )
         with st.container(border=True):
             left, right = st.columns([1, 1.2])
             with left:
-                st.image(frame["saved_path"], use_container_width=True)
+                if frame.get("saved_path"):
+                    st.image(frame["saved_path"], use_container_width=True)
+                else:
+                    st.info("这个场景还没有分镜图。")
             with right:
-                st.markdown(f"**场景 {frame['scene_number']} | 计划 {frame['duration_seconds']}s**")
-                st.write(frame["scene_description"])
-                st.caption(frame["key_message"])
-                with st.expander("查看本场景最终图片提示词", expanded=False):
-                    if frame.get("image_prompt"):
-                        st.code(frame["image_prompt"], language="text")
-                    if frame.get("image_prompt_mode"):
-                        st.caption(f"组装方式：{frame['image_prompt_mode']} | 模型：{frame.get('image_prompt_model', '')}")
-                    if frame.get("image_prompt_composer_bundle"):
-                        st.json(frame["image_prompt_composer_bundle"])
-                with st.expander("修改这个分镜"):
-                    feedback = st.text_area(
-                        "可编辑 | 分镜修改意见",
-                        key=f"frame_feedback_{frame['scene_number']}",
-                        placeholder="例如：轮椅更居中，背景更真实，保持同一台车。",
+                st.markdown(f"**场景 {scene_number} | 计划 {request['duration_seconds']}s**")
+                st.write(request["scene_description"])
+                st.caption(request["key_message"])
+                with st.expander("查看本场景当前图片提示词", expanded=False):
+                    st.code(
+                        str(request.get("image_prompt") or frame.get("image_prompt") or ""),
+                        language="text",
                     )
-                    if st.button("应用分镜修改", key=f"frame_repair_{frame['scene_number']}"):
+                    if frame.get("image_prompt_mode") or request.get("image_prompt_mode"):
+                        st.caption(
+                            f"组装方式：{frame.get('image_prompt_mode') or request.get('image_prompt_mode')} | "
+                            f"模型：{frame.get('image_prompt_model') or request.get('image_prompt_model', '')}"
+                        )
+                    if frame.get("image_prompt_composer_bundle") or request.get("image_prompt_composer_bundle"):
+                        st.json(frame.get("image_prompt_composer_bundle") or request.get("image_prompt_composer_bundle"))
+
+                with st.expander("直接修改提示词并提交", expanded=False):
+                    image_prompt = st.text_area(
+                        "可编辑 | 本场景图片 Prompt",
+                        value=str(request.get("image_prompt") or frame.get("image_prompt") or ""),
+                        height=180,
+                        key=f"storyboard_prompt_editor_{scene_key}",
+                    )
+                    image_system_prompt = st.text_area(
+                        "可编辑 | 本场景图片 System Prompt",
+                        value=str(request.get("image_system_prompt") or frame.get("image_system_prompt") or ""),
+                        height=140,
+                        key=f"storyboard_system_prompt_editor_{scene_key}",
+                    )
+                    action_cols = st.columns(2)
+                    regenerate_label = "重新生成这个分镜" if frame.get("saved_path") else "生成这个分镜"
+                    if action_cols[0].button(regenerate_label, key=f"storyboard_regenerate_{scene_key}", use_container_width=True):
+                        _set_storyboard_prompt_override(scene_number, image_prompt, image_system_prompt)
+                        persist_current_brief()
                         try:
-                            new_path = repair_single_pic(
-                                frame["saved_path"],
-                                feedback,
-                                aspect_ratio=st.session_state["inputs"]["video_orientation"],
-                            )
-                            frame["saved_path"] = new_path
+                            with st.spinner(f"正在生成场景 {scene_number} 分镜图..."):
+                                new_frame = generate_storyboard_scene(
+                                    scene_info=script,
+                                    scene_number=scene_number,
+                                    reference_image_paths=st.session_state.get("reference_image_paths", []),
+                                    aspect_ratio=st.session_state["inputs"]["video_orientation"],
+                                    continuity_reference_paths=_storyboard_neighbor_reference_paths(scene_number),
+                                    prompt_override=image_prompt,
+                                    system_prompt_override=image_system_prompt,
+                                )
+                            _upsert_storyboard_frame(new_frame)
                             persist_run_json("storyboard.json", st.session_state["storyboard"])
                             reset_downstream("storyboard")
                             st.success("分镜已更新。")
                             st.rerun()
                         except Exception as exc:
-                            _display_generation_error("分镜修改失败", exc)
+                            _display_generation_error("分镜生成失败", exc)
+
+                if frame.get("saved_path"):
+                    with st.expander("基于当前图片微调", expanded=False):
+                        feedback = st.text_area(
+                            "可编辑 | 分镜修改意见",
+                            key=f"frame_feedback_{scene_key}",
+                            placeholder="例如：轮椅更居中，背景更真实，保持同一台车。",
+                        )
+                        if st.button("应用分镜微调", key=f"frame_repair_{scene_key}"):
+                            try:
+                                new_path = repair_single_pic(
+                                    frame["saved_path"],
+                                    feedback,
+                                    aspect_ratio=st.session_state["inputs"]["video_orientation"],
+                                )
+                                frame["saved_path"] = new_path
+                                persist_run_json("storyboard.json", st.session_state["storyboard"])
+                                reset_downstream("storyboard")
+                                st.success("分镜已更新。")
+                                st.rerun()
+                            except Exception as exc:
+                                _display_generation_error("分镜修改失败", exc)
 
 
 def render_clips_tab() -> None:
@@ -1484,10 +1752,25 @@ def render_clips_tab() -> None:
                 st.error(f"视频片段生成失败：{exc}")
 
     st.caption("正式成片建议全部场景都使用远端动态片段。若显示为本地预览，则说明该场景回退到了本地占位片段。")
+    prompt_overrides = _video_prompt_overrides()
 
     for frame in ordered_storyboard():
         scene_key = str(frame["scene_number"])
         scene_result = st.session_state.get("video_result", {}).get(scene_key, {})
+        default_video_prompt = str(
+            prompt_overrides.get(scene_key)
+            or scene_result.get("video_prompt")
+            or build_video_prompt(
+                frame.get("scene_description", ""),
+                frame.get("visuals", {}),
+                frame.get("audio", {}),
+                aspect_ratio=st.session_state["inputs"]["video_orientation"],
+                duration_seconds=int(frame.get("duration_seconds", 8) or 8),
+                continuity=frame.get("continuity"),
+                meta=st.session_state.get("inputs"),
+                allow_ai_composer=False,
+            )
+        )
         with st.container(border=True):
             st.markdown(f"**场景 {scene_key}**")
             if scene_result.get("video_path"):
@@ -1504,16 +1787,65 @@ def render_clips_tab() -> None:
                 st.info(f"远端任务 ID：{scene_result['video_id']}")
             else:
                 st.info("这个场景还没开始生成视频。")
-            with st.expander("查看本场景最终视频提示词", expanded=False):
-                if scene_result.get("video_prompt"):
-                    st.code(scene_result["video_prompt"], language="text")
+            with st.expander("查看本场景当前视频提示词", expanded=False):
+                st.code(default_video_prompt, language="text")
+            with st.expander("直接修改提示词并提交", expanded=False):
+                video_prompt = st.text_area(
+                    "可编辑 | 本场景视频 Prompt",
+                    value=default_video_prompt,
+                    height=180,
+                    key=f"video_prompt_editor_{scene_key}",
+                )
+                submit_label = "重新提交这个片段" if (scene_result.get("video_path") or scene_result.get("video_id")) else "提交这个片段"
+                if st.button(submit_label, key=f"video_regenerate_{scene_key}", use_container_width=True):
+                    _set_video_prompt_override(int(frame["scene_number"]), video_prompt)
+                    persist_current_brief()
+                    try:
+                        with st.spinner(f"正在提交场景 {scene_key} 视频任务..."):
+                            clip_result = generate_video_from_image_path(
+                                frame["saved_path"],
+                                frame.get("scene_description", ""),
+                                frame.get("visuals", {}),
+                                scene_audio=frame.get("audio", {}),
+                                continuity=frame.get("continuity"),
+                                last_frame=_previous_video_reference_frame(int(frame["scene_number"])),
+                                until_finish=False,
+                                aspect_ratio=st.session_state["inputs"]["video_orientation"],
+                                duration_seconds=frame.get("duration_seconds", 8),
+                                force_local=False,
+                                meta=st.session_state.get("inputs"),
+                                prompt_override=video_prompt,
+                            )
+                        current_results = copy.deepcopy(st.session_state.get("video_result", {}))
+                        current_results[scene_key] = clip_result
+                        st.session_state["video_result"] = current_results
+                        persist_run_json("video_result.json", current_results)
+                        reset_downstream("clips")
+                        st.success("视频任务已更新。")
+                        st.rerun()
+                    except Exception as exc:
+                        _display_generation_error("视频任务提交失败", exc)
 
 
 def render_audio_tab() -> None:
     st.subheader("5. 配音、字幕、标题")
-    if not st.session_state.get("script"):
+    script = st.session_state.get("script")
+    if not script:
         st.info("请先生成脚本。")
         return
+
+    default_voiceover_text = str(
+        _coerce_dict(st.session_state.get("tts_result")).get("text_override")
+        or st.session_state["inputs"].get("tts_text_override")
+        or build_voiceover_text(script)
+    )
+    tts_text_override = st.text_area(
+        "可编辑 | 本次配音文案",
+        value=default_voiceover_text,
+        height=180,
+        key=_brief_widget_key("tts_text_override_editor"),
+        help="这里直接改本次 TTS 实际朗读的文本；字幕生成会基于生成后的音频继续处理。",
+    )
 
     top_cols = st.columns(3)
     if top_cols[0].button("生成标题描述", use_container_width=True):
@@ -1525,9 +1857,11 @@ def render_audio_tab() -> None:
                 st.error(f"标题描述生成失败：{exc}")
 
     if top_cols[1].button("生成配音", use_container_width=True):
+        st.session_state["inputs"]["tts_text_override"] = str(tts_text_override or "").strip()
+        persist_current_brief()
         with st.spinner("正在生成配音..."):
             try:
-                generate_tts_step()
+                generate_tts_step(text_override=tts_text_override)
                 st.success("配音已生成。")
             except Exception as exc:
                 st.error(f"配音生成失败：{exc}")
