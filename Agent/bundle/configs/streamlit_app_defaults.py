@@ -41,7 +41,8 @@ PRODUCT_GEOMETRY_NOTES = (
     "- Front caster fork direction rule: when the wheelchair moves forward, each front caster assembly must be rotated 180 degrees around its vertical swivel axis from the wrong forward-facing orientation. The vertical swivel stem/pivot sits ahead. The two fork/yoke arms must extend backward from that vertical stem toward the chair body, gripping the small wheel from its rear/side-rear position. The small caster wheel axle/center trails behind the pivot; never draw the fork arms projecting forward in front of the small wheel, and never place the wheel center ahead of the pivot.\n"
     "- Wheel proportion rule: preserve the reference wheel layout, with small black front casters and larger rear drive wheels. Keep the rear drive wheels, front casters, hub covers, tire thickness, spacing, and size ratio consistent with the reference photos.\n"
     "- Logo placement rule: the AnyWell brand mark/logo belongs only on the rear/back panel area. Side panels, side frame, armrests, wheels, and front area must stay plain with no side logo, no side text, no decals, and no invented badges.\n"
-    "- Keep the same metallic silver-gray tubular frame, black armrests, black seat/backrest, right-side joystick, dark gray side housing, footrests, and open riding silhouette across all three shots."
+    "- Keep the same metallic silver-gray tubular frame, black armrests, black seat/backrest, right-side joystick, dark gray side housing, footrests, and open riding silhouette across all three shots.\n"
+    "- Keep both left and right armrests present and symmetric in every frame. Keep the seat/under-seat area open and empty with visible tubular frame and ground visible through the gap; never generate a black box, battery block, bag, or solid dark mass below or behind the seat."
 )
 
 
@@ -67,25 +68,30 @@ DEFAULT_INPUTS = {
     # 风格语气：决定整体广告是温暖、理性、克制还是更偏转化。
     "style_tone": "温暖、克制、真实、电影感，必须是真人实拍广告照片质感，避免动画、卡通、插画、3D渲染、CGI、游戏感和医疗化表达",
     # 产品一致性锚点：这里写“必须保持一致”的硬约束，尤其适合产品结构和造型。
-    "consistency_anchor": "Match the same AnyWell electric wheelchair across all scenes: consistent frame, armrest, footrest, wheel size, right-side joystick, seat cushion, and side housing. Keep the rear/top-back structure compact and proportional to the real product. Do not invent extra rods, poles, antenna-like parts, cane-like extensions, or exaggerated push bars behind the backrest. Do not show a rear/lower battery pack, exposed cable, folded state, or storage configuration.",
+    "consistency_anchor": "Match the same AnyWell electric wheelchair across all scenes: consistent frame, left and right armrests, footrest, wheel size, right-side joystick, seat cushion, side housing, and open under-seat tubular frame. Keep the rear/top-back structure compact and proportional to the real product. Do not invent extra rods, poles, antenna-like parts, cane-like extensions, or exaggerated push bars behind the backrest. Do not show a rear/lower battery pack, exposed cable, folded state, storage configuration, black box, bag, or solid mass under/behind the seat.",
     # 产品几何校准：专门写轮椅结构、logo 位置、前后轮比例、前叉方向等画面细节。
     "product_geometry_notes": PRODUCT_GEOMETRY_NOTES,
     # 补充说明：这里适合写人物一致性、操作逻辑、禁忌事项等。
-    "additional_info": "The rider should be the same dignified heavyset or plus-size Western senior across all scenes, clearly broader than an average or slightly stocky build. Show a broad torso and shoulders, rounded belly under normal clothing, thicker arms and legs, and a seated posture that naturally fills the wheelchair seat. Keep body type, wardrobe, posture, and identity consistent. During self-operated motion, the rider's right hand should control the right-side joystick with a natural precision pinch: thumb and index finger lightly pinching the joystick knob, other fingers relaxed near the armrest. Do not use a clenched fist, flat palm, floating hand, or hands-free autonomous motion. If short integrated rear handles are naturally visible, keep them subtle, short, close to the backrest, and never the visual focus. White-background product photos are identity references only and must never appear as ad frames or flash cuts.",
+    "additional_info": "The rider should be the same dignified heavyset or plus-size Western senior across all scenes, clearly broader than an average or slightly stocky build. Show a broad torso and shoulders, rounded belly under normal clothing, thicker arms and legs, and a seated posture that naturally fills the wheelchair seat. Keep body type, wardrobe, posture, and identity consistent. During self-operated motion, the rider's right hand should control the right-side joystick with a natural precision pinch: thumb and index finger lightly pinching the joystick knob, other fingers relaxed near the armrest. Do not use a clenched fist, flat palm, floating hand, or hands-free autonomous motion. If short integrated rear handles are naturally visible, keep them subtle, short, close to the backrest, and never the visual focus. Keep the camera on front-side, joystick-side, or clean side profile and never end a video shot on a rear-facing/back-only view. White-background product photos are identity references only and must never appear as ad frames or flash cuts.",
     # 场景描述补充：会和每个场景脚本一起打包给 AI，用于强化整体世界观和路线感。
     "prompt_scene_description_notes": "Keep every scene grounded in one coherent outdoor route and make the wheelchair feel naturally integrated into everyday life.",
     # 特殊点强调：这里写你最想让模型额外重视的卖点或画面重点。
     "prompt_special_emphasis": "Emphasize product realism, continuity of the same rider and wheelchair, confident self-operated movement, and conversion-ready product readability.",
     # 易出错点补充：这里只写你明确填写或勾选的错误约束。
-    "prompt_error_notes": "- Avoid rear battery-pack exposure.\n- Avoid invented rear poles or exaggerated push handles.\n- Avoid body-type drift for the same rider.\n- Avoid white-background reference-photo look.\n- Avoid cartoon, animation, anime, illustration, stylized painting, 3D render, CGI, toy-like character, game asset, or plastic-looking synthetic people.\n- Avoid hands-free motion when the rider is self-operating.\n- Avoid wrong joystick grip: the right hand should not use a fist, flat palm, floating fingers, or vague contact; thumb and index finger should lightly pinch the joystick knob.\n- Avoid front caster forks pointing forward during forward motion; the fork/yoke arms must extend backward from the vertical stem toward the chair body, gripping the small wheel from its rear/side-rear position, with the wheel axle/center behind the pivot.\n- Avoid side logos, side text, decals, or invented badges on the wheelchair.\n- Avoid changing the front/rear wheel appearance, hub shape, tire thickness, spacing, or size ratio from the reference photos.",
+    "prompt_error_notes": "- Avoid rear battery-pack exposure.\n- Avoid invented rear poles or exaggerated push handles.\n- Avoid missing or asymmetric armrests; both left and right armrests must remain present.\n- Avoid black boxes, battery blocks, bags, or solid dark masses below/behind the seat; the under-seat area should stay open and empty.\n- Avoid ending a video shot on a rear-facing/back-only view.\n- Avoid body-type drift for the same rider.\n- Avoid white-background reference-photo look.\n- Avoid cartoon, animation, anime, illustration, stylized painting, 3D render, CGI, toy-like character, game asset, or plastic-looking synthetic people.\n- Avoid hands-free motion when the rider is self-operating.\n- Avoid wrong joystick grip: the right hand should not use a fist, flat palm, floating fingers, or vague contact; thumb and index finger should lightly pinch the joystick knob.\n- Avoid front caster forks pointing forward during forward motion; the fork/yoke arms must extend backward from the vertical stem toward the chair body, gripping the small wheel from its rear/side-rear position, with the wheel axle/center behind the pivot.\n- Avoid side logos, side text, decals, or invented badges on the wheelchair.\n- Avoid changing the front/rear wheel appearance, hub shape, tire thickness, spacing, or size ratio from the reference photos.",
     # 输出语言：必须来自 LANGUAGE_OPTIONS。
     "language": "English",
     # 视频画幅：必须来自 VIDEO_ORIENTATION_OPTIONS。
     "video_orientation": "9:16",
+    # 视频生成默认使用分镜图作为主参考，避免把大量产品参考和修复说明塞进 Veo prompt。
+    "video_reference_strategy": "storyboard_only",
+    "allow_product_reference_images_in_video": False,
+    "compact_video_product_context": True,
+    "skip_storyboard_crop_for_video": True,
     # 目标场景数：用于脚本规划场景数量。
-    "desired_scene_count": 5,
+    "desired_scene_count": 3,
     # 目标总时长：用于脚本和后续视频节奏规划。
-    "preferred_runtime_seconds": 28,
+    "preferred_runtime_seconds": 18,
     # 外部风格参考：通常由竞品分析自动写入，也可以手动填。
     "reference_style": "",
 }

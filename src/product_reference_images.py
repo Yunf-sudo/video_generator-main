@@ -26,7 +26,7 @@ PRODUCT_VISUAL_EXCLUSION_RULES = (
     "Brand/logo placement must follow the reference product: any AnyWell logo or brand mark belongs only on the rear/back panel area. Side panels, side frame, armrests, wheels, and the front area must stay plain with no side logo, no side text, no decals, and no invented badges. "
     "Never use a rear-facing or rear three-quarter product angle for ad generation. Keep the back panel and lower rear quadrant "
     "out of frame or fully occluded, and keep the rear silhouette clean and compact. Do not render any rectangular box mounted behind or below the seat; that area should read as "
-    "open tubular frame, wheel shadow, or plain dark under-seat space. Prefer front, front three-quarter, or joystick-side front-profile framing. "
+    "an open empty gap with visible tubular frame and ground visible through it, with only light wheel shadow. Never turn the seat underside into a black box, battery block, bag, or solid dark mass. Prefer front, front three-quarter, or joystick-side front-profile framing. "
     "The camera must not sit behind the rider; in lifestyle scenes the viewer should be able to see the rider's front torso, "
     "soft facial profile, right forearm, and right-side joystick hand. Treat rear backrest color details as nonessential for advertising shots; "
     "do not rotate backward just to show the back panel. "

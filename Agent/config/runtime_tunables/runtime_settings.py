@@ -92,6 +92,8 @@ VIDEO_RUNTIME = {
     "google_veo_preflight_ttl_seconds": 600.0,
     # 如果发生 quota/billing 类错误，暂停多久再重试，单位秒。
     "google_veo_quota_cooldown_seconds": 1800.0,
+    # Veo rejects oversized prompt strings with HTTP 400. Keep generated video prompts compact.
+    "google_veo_prompt_max_chars": 950,
 }
 
 

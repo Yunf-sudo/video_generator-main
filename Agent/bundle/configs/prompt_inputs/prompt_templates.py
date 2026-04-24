@@ -18,7 +18,7 @@ Product consistency is mandatory across the entire ad:
 - same colorway
 - same frame silhouette
 - same front and rear wheel size
-- same armrest, footrest, joystick, side housing, and seat structure
+- same left and right armrests, footrest, joystick, side housing, and seat structure
 - no random redesigns between scenes
 - {reference_image_instruction}
 - show the wheelchair only in its normal open riding position
@@ -28,7 +28,7 @@ Product consistency is mandatory across the entire ad:
 - do not use rear-facing or rear three-quarter product views; use safe side, side-profile, or front-side angles where the back panel and lower rear quadrant stay hidden, cropped out, or fully occluded and the rear silhouette stays clean and compact
 - never place the camera behind the rider; the viewer should see the rider's front torso or soft facial profile plus the right forearm/hand on the right-side joystick
 - do not make the backrest/back panel or rear red detail the hero feature; prioritize front caster, joystick, armrest, side housing, seat, and wheel profile
-- never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
+- never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area must stay open and empty with visible tubular frame and ground visible through the gap, not a black box, battery block, bag, or solid dark mass
 - for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller; no hands-free autonomous wheelchair movement
 - if the rider's right hand is not on the joystick, do not present the chair as autonomous hands-free motion
 - white-background product reference photos are identity references only; never reproduce a white studio background, packshot, cutaway, or product-photo flash frame in the ad
@@ -141,10 +141,10 @@ Rules:
 - Do not show a rear/lower external battery pack, removable battery, exposed battery cable, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration.
 - Keep the rear structure compact, realistic, and proportional to the real product. Do not invent extra rods, poles, antenna-like parts, cane-like extensions, or exaggerated push bars behind the backrest.
 - If short integrated rear handles are naturally visible from a reference-consistent angle, keep them subtle, short, close to the backrest, and never the hero feature.
-- Do not use rear-facing or rear three-quarter product views. Use safe side, side-profile, or front-side angles where the back panel and lower rear quadrant stay hidden, cropped out, or fully occluded and the rear silhouette stays clean and compact.
+- Do not use rear-facing or rear three-quarter product views. Use safe side, side-profile, or front-side angles where the back panel and lower rear quadrant stay hidden, cropped out, or fully occluded and the rear silhouette stays clean and compact. Never end a video shot on a rear-facing/back-only view.
 - Never place the camera behind the rider. The storyboard must show the rider's front torso or soft facial profile, plus the right forearm and hand on the right-side joystick when self-operated.
 - Do not make the chair backrest, back panel, or rear red detail the visual focus. Prioritize joystick-side front-profile, front caster, armrest, side housing, seat, and wheel profile.
-- Never render a rectangular box mounted behind or below the seat. The under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space.
+- Never render a rectangular box mounted behind or below the seat. The under-seat/rear-lower area must stay open and empty with visible tubular frame and ground visible through the gap, not a black box, battery block, bag, or solid dark mass.
 - If the chair is moving under the rider's control, show the rider's right hand using a natural precision pinch on the right-side joystick knob: thumb and index finger lightly pinch the joystick, with the other fingers relaxed near the armrest.
 - If the rider's right hand is not clearly pinching or touching the joystick, do not present the chair as autonomous hands-free motion.
 - Treat white-background product photos only as identity references. Never reproduce a white studio background, packshot, cutaway, or product-photo flash frame.
@@ -195,7 +195,7 @@ Hard requirements:
 - do not use rear-facing or rear three-quarter product views; use safe side, side-profile, or front-side angles where the back panel and lower rear quadrant stay hidden, cropped out, or fully occluded and the rear silhouette stays clean and compact
 - never place the camera behind the rider; the video must show the rider's front torso or soft facial profile plus the right forearm/hand on the right-side joystick during self-operated motion
 - do not feature the backrest/back panel or rear red detail; keep the visual emphasis on joystick-side front-profile riding, front caster, armrest, side housing, seat, and wheel profile
-- never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area should read as open tubular frame, wheel shadow, or plain dark space
+- never render a rectangular box mounted behind or below the seat; the under-seat/rear-lower area must stay open and empty with visible tubular frame and ground visible through the gap, not a black box, battery block, bag, or solid dark mass
 - for self-operated motion, the rider's right hand must visibly rest on or gently hold the right-side joystick controller
 - if the rider's right hand is not on the joystick, do not present the chair as autonomous hands-free motion
 - white-background product reference photos are identity references only; never reproduce a white studio background, packshot, cutaway, or product-photo flash frame in the video

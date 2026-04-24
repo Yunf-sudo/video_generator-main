@@ -119,6 +119,16 @@ GOOGLE_VEO_QUOTA_COOLDOWN_SECONDS = max(
         or 1800
     ),
 )
+GOOGLE_VEO_PROMPT_MAX_CHARS = max(
+    800,
+    int(
+        os.getenv(
+            "GOOGLE_VEO_PROMPT_MAX_CHARS",
+            str(VIDEO_RUNTIME.get("google_veo_prompt_max_chars") or 950),
+        ).strip()
+        or 950
+    ),
+)
 
 
 _GOOGLE_REQUEST_TIMESTAMPS: deque[float] = deque()
@@ -489,6 +499,82 @@ def _compact_value_list(value: Any, limit: int) -> list[str]:
     return []
 
 
+def _single_line(value: Any, limit: int = 280) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _visuals_summary(visuals: Dict[str, Any] | None) -> str:
+    visuals = visuals or {}
+    parts = [
+        _single_line(visuals.get("camera_movement", ""), 80),
+        _single_line(visuals.get("composition_and_set_dressing", ""), 80),
+        _single_line(visuals.get("transition_anchor", ""), 60),
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def _truncate_to_max_bytes(text: str, max_bytes: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+
+
+def _build_compact_veo_prompt(
+    scene_info: str,
+    visuals: Dict[str, Any] | None,
+    scene_audio: Dict[str, Any] | None,
+    aspect_ratio: str,
+    duration_seconds: int,
+) -> str:
+    voiceover = ""
+    if isinstance(scene_audio, dict):
+        voiceover = _single_line(scene_audio.get("voice_over") or scene_audio.get("text") or "", 140)
+
+    blocks = [
+        f"Photorealistic live-action {duration_seconds}s vertical video ({aspect_ratio}) from storyboard image.",
+        "Preserve same heavyset Western elderly rider, AnyWell powered wheelchair, wardrobe, location, lighting.",
+        "Right hand pinches joystick with thumb and index finger; no hands-free driving.",
+        "Front caster: pivot ahead, fork/yoke trails backward, axle behind pivot.",
+        "Both armrests stay present and symmetric. Seat underside stays open: tubular frame and ground visible; no black box, battery, bag, or solid block.",
+        "Camera stays front-side, joystick-side, or clean side profile; never finish rear/back-only.",
+        "No morphing, scene reset, cartoon, CGI, plastic people, side logos, rear poles, exposed battery, text, watermark, or UI.",
+        f"Action: {_single_line(scene_info, 140)}",
+        f"Camera/motion: {_visuals_summary(visuals)}",
+        "Animate believable wheel roll and smooth camera motion.",
+    ]
+    if voiceover:
+        blocks.append(f"Emotional tone: {voiceover}")
+    return "\n".join(block for block in blocks if block.strip())
+
+
+def _fit_veo_prompt(
+    prompt: str,
+    scene_info: str,
+    visuals: Dict[str, Any] | None,
+    scene_audio: Dict[str, Any] | None,
+    aspect_ratio: str,
+    duration_seconds: int,
+) -> tuple[str, bool]:
+    prompt = str(prompt or "").strip()
+    if len(prompt.encode("utf-8")) <= GOOGLE_VEO_PROMPT_MAX_CHARS:
+        return prompt, False
+
+    compact_prompt = _build_compact_veo_prompt(
+        scene_info=scene_info,
+        visuals=visuals,
+        scene_audio=scene_audio,
+        aspect_ratio=aspect_ratio,
+        duration_seconds=duration_seconds,
+    )
+    if len(compact_prompt.encode("utf-8")) <= GOOGLE_VEO_PROMPT_MAX_CHARS:
+        return compact_prompt, True
+    return _truncate_to_max_bytes(compact_prompt, GOOGLE_VEO_PROMPT_MAX_CHARS), True
+
+
 def crop_image_to_ratio(src_path: str, ratio: str = "9:16") -> str:
     img = cv2.imread(src_path)
     if img is None:
@@ -838,6 +924,14 @@ def generate_video_from_image_path(
             product_reference_signature=product_reference_signature,
             product_visual_structure=product_visual_structure,
         )
+    prompt_text, prompt_was_compacted = _fit_veo_prompt(
+        prompt_text,
+        scene_info,
+        visuals,
+        scene_audio,
+        aspect_ratio,
+        requested_duration,
+    )
 
     product_reference_urls: list[str] = []
     allow_product_reference_images_in_video = bool((meta or {}).get("allow_product_reference_images_in_video", False))
@@ -858,6 +952,7 @@ def generate_video_from_image_path(
             output_dir=clips_dir,
         )
         local_result["video_prompt"] = prompt_text
+        local_result["video_prompt_was_compacted"] = prompt_was_compacted
         return local_result
 
     remote_errors = []
@@ -922,6 +1017,7 @@ def generate_video_from_image_path(
                     "extra_image_urls": attempt.get("extra_image_urls") or [],
                     "last_frame_url": attempt["last_frame_url"],
                     "video_prompt": attempt["prompt"],
+                    "video_prompt_was_compacted": prompt_was_compacted,
                     "generation_mode": "remote_pending",
                     "planned_duration_seconds": requested_duration,
                 }
@@ -932,6 +1028,7 @@ def generate_video_from_image_path(
             downloaded = _download_completed_video(video_id, video_url, clips_dir)
             downloaded["planned_duration_seconds"] = requested_duration
             downloaded["video_prompt"] = attempt["prompt"]
+            downloaded["video_prompt_was_compacted"] = prompt_was_compacted
             return downloaded
         except Exception as err:
             remote_errors.append(str(err))
@@ -946,6 +1043,7 @@ def generate_video_from_image_path(
         )
         local_result["fallback_reason"] = " | ".join(remote_errors)
         local_result["video_prompt"] = prompt_text
+        local_result["video_prompt_was_compacted"] = prompt_was_compacted
         return local_result
     except Exception as local_err:
         raise RuntimeError(

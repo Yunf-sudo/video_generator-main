@@ -560,6 +560,30 @@ def _set_video_prompt_override(scene_number: int, video_prompt: str) -> None:
     st.session_state["inputs"]["video_prompt_overrides"] = overrides
 
 
+def _video_previous_reference_disabled_scenes() -> set[str]:
+    raw = _coerce_dict(st.session_state.get("inputs")).get("video_disable_previous_frame_scenes", [])
+    if isinstance(raw, str):
+        values = [item.strip() for item in raw.replace("，", ",").split(",")]
+    elif isinstance(raw, (list, tuple, set)):
+        values = [str(item).strip() for item in raw]
+    else:
+        values = []
+    return {str(_safe_int(value, default=-1)) for value in values if _safe_int(value, default=-1) > 0}
+
+
+def _set_video_previous_reference_disabled(scene_number: int, disabled: bool) -> None:
+    disabled_scenes = _video_previous_reference_disabled_scenes()
+    scene_key = str(scene_number)
+    if disabled:
+        disabled_scenes.add(scene_key)
+    else:
+        disabled_scenes.discard(scene_key)
+    st.session_state["inputs"]["video_disable_previous_frame_scenes"] = sorted(
+        disabled_scenes,
+        key=lambda value: _safe_int(value),
+    )
+
+
 def _storyboard_neighbor_reference_paths(scene_number: int) -> list[str]:
     refs: list[str] = []
     frame_map = {
@@ -575,6 +599,8 @@ def _storyboard_neighbor_reference_paths(scene_number: int) -> list[str]:
 
 
 def _previous_video_reference_frame(scene_number: int) -> str | None:
+    if str(scene_number) in _video_previous_reference_disabled_scenes():
+        return None
     previous_key = str(scene_number - 1)
     previous_result = _coerce_dict(st.session_state.get("video_result", {})).get(previous_key, {})
     if isinstance(previous_result, dict):
@@ -919,13 +945,14 @@ def submit_all_missing_clips() -> None:
             last_reference_frame = existing.get("last_frame_path") or frame["saved_path"]
             continue
 
+        scene_last_frame = None if scene_key in _video_previous_reference_disabled_scenes() else last_reference_frame
         clip_result = generate_video_from_image_path(
             frame["saved_path"],
             frame.get("scene_description", ""),
             frame.get("visuals", {}),
             scene_audio=frame.get("audio", {}),
             continuity=frame.get("continuity"),
-            last_frame=last_reference_frame,
+            last_frame=scene_last_frame,
             until_finish=False,
             aspect_ratio=st.session_state["inputs"]["video_orientation"],
             duration_seconds=frame.get("duration_seconds", 8),
@@ -960,13 +987,16 @@ def resolve_all_pending_clips() -> None:
         try:
             refreshed = get_video_path_from_video_id(current["video_id"])
         except Exception:
+            scene_last_frame = None if scene_key in _video_previous_reference_disabled_scenes() else (
+                current.get("last_frame_path") or last_reference_frame
+            )
             refreshed = generate_video_from_image_path(
                 frame["saved_path"],
                 frame.get("scene_description", ""),
                 frame.get("visuals", {}),
                 scene_audio=frame.get("audio", {}),
                 continuity=frame.get("continuity"),
-                last_frame=current.get("last_frame_path") or last_reference_frame,
+                last_frame=scene_last_frame,
                 until_finish=True,
                 aspect_ratio=st.session_state["inputs"]["video_orientation"],
                 duration_seconds=frame.get("duration_seconds", 8),
