@@ -1403,11 +1403,11 @@ def render_brief_tab() -> None:
 
     with strategy_cols[1]:
         error_selection = st.multiselect(
-            "错误实例",
+            "易错提醒",
             options=error_example_labels(),
             default=_coerce_list(st.session_state["inputs"].get("prompt_error_examples")),
             key=_brief_widget_key("prompt_error_examples"),
-            help="把你最怕出现的问题显式写进去，系统会自动转成错误约束。",
+            help="把你最担心翻车的地方写进去，系统会整理成柔性提醒，而不是一长串死规则。",
         )
         if error_selection:
             for item in selected_error_examples(error_selection):
@@ -1441,7 +1441,7 @@ def render_brief_tab() -> None:
             value=_prompt_manual_default("prompt_error_notes_manual"),
             height=140,
             key=_brief_widget_key("prompt_error_notes_manual"),
-            help="这里补项目特有的翻车点。只会写入你明确填写或勾选的内容。",
+            help="这里补项目特有的翻车点。系统会把它们当作提醒重点，而不是机械硬约束。",
         )
 
     prompt_preview = _build_prompt_editor_preview(
@@ -1459,7 +1459,7 @@ def render_brief_tab() -> None:
         st.markdown("**系统最终写入 | 特殊点强调**")
         st.code(prompt_preview["prompt_special_emphasis"] or "未补充", language="text")
     with preview_cols[2]:
-        st.markdown("**系统最终写入 | 错误约束补充**")
+        st.markdown("**系统最终写入 | 易错点提醒**")
         st.code(prompt_preview["prompt_error_notes"] or "未补充", language="text")
     st.caption("保存后会把上面三块最终文本写入正式简报字段，生成脚本、分镜和视频时统一复用。")
 

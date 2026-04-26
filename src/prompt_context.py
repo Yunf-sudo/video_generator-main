@@ -10,26 +10,24 @@ def build_prompt_context(meta: dict | None = None) -> dict[str, str]:
     hero_product_name = str(
         meta.get("hero_product_name")
         or product_name
-        or (f"{brand_name} powered wheelchair" if brand_name else "the featured powered wheelchair")
+        or (f"{brand_name} 电动轮椅" if brand_name else "本次主推电动轮椅")
     ).strip()
 
     use_reference_images = bool(meta.get("use_product_reference_images", True))
     if use_reference_images:
         reference_image_instruction = (
-            "When official product reference images, a product reference signature, or a product visual structure are "
-            "provided, treat them as visual guidance for consistency across scenes, but adapt them naturally for the "
-            "current shot instead of copying them literally. Never reproduce the white studio background or insert a "
-            "product-photo packshot into the ad."
+            "如果提供了官方产品参考图、产品参考签名或产品结构信息，请把它们当作跨场景保持一致的视觉参考，"
+            "但要结合当前镜头自然转化，而不是生硬照抄。不要在广告里复现白底棚拍背景，也不要插入产品页 packshot。"
         )
     else:
         reference_image_instruction = (
-            "No official product reference image pack is provided for this task, so keep one consistent premium powered "
-            "wheelchair identity across every scene without claiming an exact product-photo match."
+            "当前任务没有提供官方产品参考图包，因此你需要在所有场景里保持同一台高质感电动轮椅的身份一致，"
+            "但不要假装自己在逐像素匹配某张产品图。"
         )
 
     return {
-        "brand_name": brand_name or "the brand",
+        "brand_name": brand_name or "品牌方",
         "marketing_product_name": marketing_product_name or hero_product_name,
-        "hero_product_name": hero_product_name or "the featured powered wheelchair",
+        "hero_product_name": hero_product_name or "本次主推电动轮椅",
         "reference_image_instruction": reference_image_instruction,
     }

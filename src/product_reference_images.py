@@ -12,25 +12,21 @@ PRODUCT_REFERENCE_DIR_CANDIDATES = [
 ]
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 PRODUCT_VISUAL_EXCLUSION_RULES = (
-    "Production rendering exclusions: show the wheelchair only in its normal open riding position. "
-    "Keep the rear/top-back structure compact, realistic, and proportional to the real product. "
-    "Do not invent extra protruding rods, poles, antenna-like parts, cane-like extensions, exaggerated push bars, or any long metal tubes sticking up behind the backrest. "
-    "If short integrated rear handles are naturally visible from a reference-consistent angle, keep them subtle, short, close to the backrest, and never the hero feature. "
-    "Do not show any rear/lower external battery pack, removable battery, dangling or exposed battery cable, "
-    "folded chair, semi-folded chair, collapsed chair, compact storage form, or folding/unfolding demonstration. "
-    "If a reference photo contains a rear lower battery pack, treat it as an omitted accessory for advertising visuals; "
-    "hide it by angle, rider body, shadow, or framing while preserving the rest of the wheelchair identity. "
-    "Preserve the exact reference wheel layout: small black front caster wheels, larger rear drive wheels, matching hub covers, tire thickness, spacing, and front/rear size ratio. "
-    "During forward motion, each front caster assembly must swivel 180 degrees around its vertical caster axis from a reversed forward-facing orientation: the vertical swivel stem/pivot sits ahead, the small wheel axle/center trails behind that pivot toward the chair body, and the two fork/yoke arms extend backward from the vertical stem to grip the small wheel from the rear/side-rear position. Never draw fork arms projecting forward in front of the small wheel, and never point the fork/yoke forward with the wheel center ahead of the pivot. "
-    "The generated ad frame must be photorealistic live-action only: no cartoon, animation, anime, illustration, stylized painting, 3D render, CGI, toy-like character, game asset, or plastic-looking synthetic people. "
-    "Brand/logo placement must follow the reference product: any AnyWell logo or brand mark belongs only on the rear/back panel area. Side panels, side frame, armrests, wheels, and the front area must stay plain with no side logo, no side text, no decals, and no invented badges. "
-    "Never use a rear-facing or rear three-quarter product angle for ad generation. Keep the back panel and lower rear quadrant "
-    "out of frame or fully occluded, and keep the rear silhouette clean and compact. Do not render any rectangular box mounted behind or below the seat; that area should read as "
-    "an open empty gap with visible tubular frame and ground visible through it, with only light wheel shadow. Never turn the seat underside into a black box, battery block, bag, or solid dark mass. Prefer front, front three-quarter, or joystick-side front-profile framing. "
-    "The camera must not sit behind the rider; in lifestyle scenes the viewer should be able to see the rider's front torso, "
-    "soft facial profile, right forearm, and right-side joystick hand. Treat rear backrest color details as nonessential for advertising shots; "
-    "do not rotate backward just to show the back panel. "
-    "Use the white-background photos only for product identity; never reproduce the white studio background, packshot, cutaway, or product-photo flash frame."
+    "广告生成约束：轮椅只能以正常展开、可骑乘的状态出现。"
+    "后背上部结构要紧凑、真实，并与实物比例一致。"
+    "不要凭空生成额外杆件、天线状结构、拐杖状延伸件、夸张推手或任何从靠背后方高高竖起的金属件。"
+    "正式产品没有头枕或颈托。后背顶部如果可见，应是贴近靠背上角的短小结构，而不是高耸支撑件。"
+    "不要出现后下方外挂电池、可拆电池、外露电池线、折叠状态、半折叠状态、收纳形态或折叠演示。"
+    "如果参考图里存在后下方电池，请在广告画面里通过角度、人物遮挡、轮子、阴影或构图把它完全隐藏，同时保留其他产品身份特征。"
+    "必须保留参考图中的轮组关系：小号黑色前万向轮、大号后驱动轮、匹配的轮毂罩、胎宽、间距和前后轮比例。"
+    "前进时，前万向轮必须符合物理逻辑：垂直转轴在前，小轮中心在后，前叉从转轴向后包住小轮，不能画成前叉朝前。"
+    "生成画面必须是真人实拍质感：不要卡通、动画、二次元、插画、风格化绘画、3D 渲染、CGI、游戏资产或塑料假人质感。"
+    "品牌标识必须遵循参考产品：如果能看到后背上半部布面，居中的白色 AnyWell 标识只能出现在该布面/口袋区域，不能跑到下方壳体、保险杠或底盘。"
+    "侧板、侧架、扶手、轮子和前部区域都应保持干净，不要额外生成侧边 logo、文字、贴纸或虚构徽标。"
+    "不要使用正后方居中的产品角度。即便需要带一点后背信息，也只允许轻微、抬高的侧后角度，并且要让后下部区域保持隐藏。"
+    "座椅下方和后下方不要变成黑盒、电池块、袋子或实心黑块，应尽量表现为轻盈、开放的管架关系。"
+    "镜头不要放在骑手正后方；生活方式场景里，观众应能看到人物前胸、柔和侧脸、右前臂和右侧摇杆手。"
+    "白底产品图只用于识别产品身份，正式广告里不要复现白底棚拍、packshot、剖面图或产品页闪帧。"
 )
 REAR_DETAIL_BLOCKLIST = (
     "battery",
@@ -45,11 +41,7 @@ REAR_DETAIL_BLOCKLIST = (
     "red fabric strip",
     "red mesh",
     "backrest accent",
-    "push handle",
     "rear caregiver",
-    "vertical tube",
-    "rearward-curved rubber grip",
-    "handle horn",
     "long rod",
     "pole",
     "antenna-like",
@@ -122,21 +114,18 @@ def get_product_reference_signature() -> str:
     structure_text = get_product_visual_structure_signature()
     if structure_text:
         return (
-            "Match the real wheelchair from the white-background product photos exactly.\n"
+            "尽量准确匹配白底产品图中的真实轮椅。\n"
             f"{structure_text}"
         )
     return (
-        "Match the real wheelchair from the white-background product photos exactly. "
-        "It is a compact electric wheelchair shown in normal open riding position with a metallic silver-gray tubular frame, black armrests, "
-        "a black seat cushion and black backrest. "
-        "There is a joystick controller mounted on the rider's right side above the armrest and a dark gray side housing "
-        "with a smooth wave-like contour under the armrest, large rear drive wheels with silver hub covers and red center caps, "
-        "small black front casters with thin multi-spoke rims, black swing-away footrests and footplates, and a compact top-back area "
-        "with no exaggerated rear rods, poles, or oversized push bars. "
-        "During forward motion, the small front caster assembly should be rotated 180 degrees around its vertical swivel axis from a reversed orientation, with the wheel axle/center behind the vertical pivot and trailing toward the chair body; the fork/yoke arms extend backward from the vertical stem to grip the small wheel from its rear/side-rear position. "
-        "The side of the wheelchair should remain plain with no side logo, side text, decals, or invented badges; any brand logo belongs only on the rear/back panel area. "
-        "Do not replace it with a generic rehab wheelchair, molded shell chair, thick-spoke manual chair, or a different frame shape. "
-        "Keep the same proportions, frame geometry, wheel layout, armrest shape, controller placement, side housing, and wheel hubs as the real product photos. "
+        "请尽量准确匹配白底产品图中的真实轮椅。"
+        "它是一台正常展开状态的紧凑型电动轮椅，具有银灰色金属管架、黑色扶手、黑色坐垫和黑色靠背。"
+        "右侧扶手前上方有摇杆控制器，扶手下方是深灰色流线型侧壳。"
+        "后轮较大，带银色轮毂罩和红色中心点缀；前轮较小，为黑色万向轮；脚踏为黑色翻转式脚踏。"
+        "顶部后背轮廓紧凑，不要把它替换成医院轮椅、手动轮椅、厚辐条轮椅或完全不同的车架。"
+        "前进时，前万向轮必须符合物理方向：小轮中心在转轴后方，前叉从转轴向后包住小轮。"
+        "轮椅侧面应保持干净，不要出现侧边 logo、文字、贴纸或虚构品牌件；如果能看到后背上半部布面，居中的白色 AnyWell 标识只能在该区域。"
+        "必须保持与实拍参考图一致的比例、车架关系、轮组布局、扶手形状、控制器位置、侧壳和轮毂特征。"
         f"{PRODUCT_VISUAL_EXCLUSION_RULES}"
     )
 
@@ -153,10 +142,10 @@ def _strip_rear_detail_language(text: str) -> str:
         "red backrest accent": "small side-visible red hub accents",
         "red accent on backrest": "small side-visible red hub accent",
         "red upholstery accent": "small side-visible red hub accent",
-        "two tall black rear caregiver push handles": "compact top-back structure",
-        "left/right vertical tubes rising clearly above the backrest": "compact rear silhouette",
-        "short rearward-curved rubber grips": "subtle integrated rear details",
-        "two small handle horns above the backrest": "a compact top-back profile",
+        "two tall black rear caregiver push handles": "exactly two short top-corner rear handles close to the backrest",
+        "left/right vertical tubes rising clearly above the backrest": "two short handle stems at the upper backrest corners",
+        "short rearward-curved rubber grips": "two short top-corner rear handles with compact grips",
+        "two small handle horns above the backrest": "exactly two short top-corner rear handles",
     }
     cleaned = text
     for old, new in replacements.items():
@@ -201,22 +190,25 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
 
     must_avoid = _coerce_text_items(sanitized.get("must_avoid"))
     for item in [
-        "rear-facing or rear three-quarter product angles",
-        "camera placed behind the rider",
-        "viewer's main view of the rider's back",
-        "rear backrest color as a hero detail",
-        "visible back panel and lower rear quadrant",
-        "rectangular box behind or below the seat",
-        "rear/lower battery pack or exposed cables",
-        "folded or collapsed configurations",
-        "extra protruding rods, poles, antenna-like parts, or exaggerated push bars behind the backrest",
-        "overstated rear-handle geometry that extends far above the backrest",
-        "front caster forks pointing forward ahead of the wheel during forward motion",
-        "front caster wheel axle/center placed ahead of the vertical swivel pivot",
-        "front caster fork/yoke arms projecting forward instead of extending backward from the vertical stem",
-        "cartoon, animation, anime, illustration, 3D render, CGI, game asset, or stylized synthetic look",
-        "side logos, side text, decals, or invented badges on the wheelchair",
-        "changed front/rear wheel appearance, hub shape, tire thickness, spacing, or size ratio",
+        "头枕、颈枕或高背支撑件",
+        "靠背上方出现中间支撑柱",
+        "正后方或后 3/4 产品角度",
+        "镜头放在骑手正后方",
+        "以骑手背面作为主要画面",
+        "把后背颜色细节当成主角",
+        "直接暴露后背下半部和后下方区域",
+        "座椅后下方出现矩形黑盒或实体块",
+        "后下方电池或外露线缆",
+        "折叠、塌缩、收纳形态",
+        "靠背后方额外长出杆件、天线状结构或夸张推手",
+        "明显高于靠背的夸张后部把手结构",
+        "前进时前叉朝前",
+        "前轮中心跑到垂直转轴前方",
+        "前叉不是从转轴向后包住小轮",
+        "卡通、动画、二次元、插画、3D、CGI 或风格化合成质感",
+        "轮椅侧面出现 logo、文字、贴纸或虚构徽标",
+        "把 logo 放在前侧附件或不合理位置",
+        "前后轮外观、轮毂、胎宽、间距或比例漂移",
     ]:
         if item not in must_avoid:
             must_avoid.append(item)

@@ -535,19 +535,18 @@ def _build_compact_veo_prompt(
         voiceover = _single_line(scene_audio.get("voice_over") or scene_audio.get("text") or "", 140)
 
     blocks = [
-        f"Photorealistic live-action {duration_seconds}s vertical video ({aspect_ratio}) from storyboard image.",
-        "Preserve same heavyset Western elderly rider, AnyWell powered wheelchair, wardrobe, location, lighting.",
-        "Right hand pinches joystick with thumb and index finger; no hands-free driving.",
-        "Front caster: pivot ahead, fork/yoke trails backward, axle behind pivot.",
-        "Both armrests stay present and symmetric. Seat underside stays open: tubular frame and ground visible; no black box, battery, bag, or solid block.",
-        "Camera stays front-side, joystick-side, or clean side profile; never finish rear/back-only.",
-        "No morphing, scene reset, cartoon, CGI, plastic people, side logos, rear poles, exposed battery, text, watermark, or UI.",
-        f"Action: {_single_line(scene_info, 140)}",
-        f"Camera/motion: {_visuals_summary(visuals)}",
-        "Animate believable wheel roll and smooth camera motion.",
+        f"基于分镜图生成一段 {duration_seconds} 秒、画幅 {aspect_ratio} 的真人实拍感视频。",
+        "保持同一人物、同一台 AnyWell 轮椅、同一套服装和同一路线逻辑。",
+        "只表现一个简单明确的前进行为，摇杆操控自然，轮子滚动真实。",
+        "优先前侧或侧向跟拍角度，让轮椅主体清楚可读。",
+        "如果能看到靠背上半部布面，AnyWell 标识只能在那里。",
+        "后下方和座椅下方保持轻盈自然；如果后部导轮可见，它们必须短、正、稳。",
+        f"动作：{_single_line(scene_info, 120)}",
+        f"镜头路径：{_single_line(_visuals_summary(visuals), 84)}",
+        "注意避免：形变、场景重置、侧边乱出标识。",
     ]
     if voiceover:
-        blocks.append(f"Emotional tone: {voiceover}")
+        blocks.append(f"音频氛围：{voiceover}")
     return "\n".join(block for block in blocks if block.strip())
 
 
