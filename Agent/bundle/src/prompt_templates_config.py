@@ -9,7 +9,12 @@ from types import ModuleType
 from workspace_paths import PROJECT_ROOT
 
 
-DEFAULT_PROMPT_TEMPLATES_PATH = PROJECT_ROOT / "configs" / "prompt_inputs" / "prompt_templates.py"
+AGENT_ROOT = PROJECT_ROOT.parent
+PRIMARY_PROMPT_TEMPLATES_PATH = AGENT_ROOT / "config" / "prompt_inputs" / "prompt_templates.py"
+FALLBACK_PROMPT_TEMPLATES_PATH = PROJECT_ROOT / "configs" / "prompt_inputs" / "prompt_templates.py"
+DEFAULT_PROMPT_TEMPLATES_PATH = (
+    PRIMARY_PROMPT_TEMPLATES_PATH if PRIMARY_PROMPT_TEMPLATES_PATH.exists() else FALLBACK_PROMPT_TEMPLATES_PATH
+)
 
 
 def _resolve_config_path() -> Path:
@@ -18,7 +23,8 @@ def _resolve_config_path() -> Path:
         return DEFAULT_PROMPT_TEMPLATES_PATH
     candidate = Path(configured)
     if not candidate.is_absolute():
-        candidate = (PROJECT_ROOT / candidate).resolve()
+        agent_candidate = (AGENT_ROOT / candidate).resolve()
+        candidate = agent_candidate if agent_candidate.exists() else (PROJECT_ROOT / candidate).resolve()
     return candidate
 
 

@@ -345,6 +345,9 @@ def register_generated_material(
         "landing_page_url": str(source_meta.get("landing_page_url") or source_inputs.get("landing_page_url") or "").strip(),
         "page_id": str(source_meta.get("page_id") or source_inputs.get("page_id") or "").strip(),
         "target_adset_id": str(source_meta.get("target_adset_id") or source_inputs.get("target_adset_id") or "").strip(),
+        "desired_video_name": str(source_inputs.get("desired_video_name") or "").strip(),
+        "desired_creative_name": str(source_inputs.get("desired_creative_name") or "").strip(),
+        "desired_ad_name": str(source_inputs.get("desired_ad_name") or "").strip(),
         "meta_mapping": {
             "video_id": "",
             "creative_id": "",

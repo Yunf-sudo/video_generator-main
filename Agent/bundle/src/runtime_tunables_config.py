@@ -9,7 +9,12 @@ from types import ModuleType
 from workspace_paths import PROJECT_ROOT
 
 
-DEFAULT_RUNTIME_TUNABLES_PATH = PROJECT_ROOT / "configs" / "runtime_tunables" / "runtime_settings.py"
+AGENT_ROOT = PROJECT_ROOT.parent
+PRIMARY_RUNTIME_TUNABLES_PATH = AGENT_ROOT / "config" / "runtime_tunables" / "runtime_settings.py"
+FALLBACK_RUNTIME_TUNABLES_PATH = PROJECT_ROOT / "configs" / "runtime_tunables" / "runtime_settings.py"
+DEFAULT_RUNTIME_TUNABLES_PATH = (
+    PRIMARY_RUNTIME_TUNABLES_PATH if PRIMARY_RUNTIME_TUNABLES_PATH.exists() else FALLBACK_RUNTIME_TUNABLES_PATH
+)
 
 
 def _resolve_config_path() -> Path:
@@ -18,7 +23,8 @@ def _resolve_config_path() -> Path:
         return DEFAULT_RUNTIME_TUNABLES_PATH
     candidate = Path(configured)
     if not candidate.is_absolute():
-        candidate = (PROJECT_ROOT / candidate).resolve()
+        agent_candidate = (AGENT_ROOT / candidate).resolve()
+        candidate = agent_candidate if agent_candidate.exists() else (PROJECT_ROOT / candidate).resolve()
     return candidate
 
 

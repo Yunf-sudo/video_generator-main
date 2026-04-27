@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from ad_ops_config import load_ad_ops_config
 from meta_pool_state import (
@@ -26,7 +26,7 @@ from meta_pool_state import (
 from meta_ads_service import activate_prelaunched_material, is_meta_read_only_mode, pause_material_ad
 from workspace_paths import PROJECT_ROOT, ensure_dir
 
-load_dotenv()
+load_agent_bundle_env()
 
 
 AD_OPS_CONFIG = load_ad_ops_config()

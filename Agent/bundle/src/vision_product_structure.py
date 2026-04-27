@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content, image_part_from_path
 from runtime_tunables_config import load_runtime_tunables
@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - optional dependency
     json_repair = None
 
 
-load_dotenv()
+load_agent_bundle_env()
 
 CACHE_PATH = cache_root() / "product_visual_structure_cache.json"
 LEGACY_CACHE_PATHS = [

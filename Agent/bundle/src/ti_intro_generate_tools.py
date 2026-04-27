@@ -4,7 +4,7 @@ import json
 import os
 import uuid
 
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
 from prompt_context import build_prompt_context
@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - optional dependency
     json_repair = None
 
 
-load_dotenv()
+load_agent_bundle_env()
 
 RUNTIME_TUNABLES = load_runtime_tunables()
 DEFAULT_META_MODEL = os.getenv(

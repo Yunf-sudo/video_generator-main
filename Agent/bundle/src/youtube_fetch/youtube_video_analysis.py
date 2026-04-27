@@ -5,13 +5,13 @@ import os
 from typing import Any
 
 import requests
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
 from runtime_tunables_config import load_runtime_tunables
 
 
-load_dotenv()
+load_agent_bundle_env()
 
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 RUNTIME_TUNABLES = load_runtime_tunables()

@@ -56,7 +56,7 @@ VOICE_STYLE_PRESETS = {
 }
 
 _DEFAULT_TTS_SECTION = {
-    "base_runtime_tunables_path": "bundle/configs/runtime_tunables/runtime_settings.py",
+    "base_runtime_tunables_path": "config/runtime_tunables/runtime_settings.py",
     "runtime_override_path": "runtime/runtime_tunables.generated.py",
     "provider": "edge_tts",
     "edge_voice": "en-US-AvaNeural",

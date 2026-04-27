@@ -6,6 +6,7 @@ from meta_pool_state import register_generated_material
 from meta_ads_service import (
     create_ad_creative_for_material,
     create_paused_ad_for_material,
+    meta_write_override,
     upload_thumbnail_to_meta,
     upload_video_to_meta,
 )
@@ -57,6 +58,9 @@ def stage_run_output_to_meta(
     script: dict[str, Any] | None,
     ti_intro: dict[str, Any] | None,
     source_inputs: dict[str, Any] | None,
+    perform_actual_upload: bool = False,
+    allow_meta_write_override: bool = False,
+    remote_upload_mode: str = "library_only",
 ) -> dict[str, Any]:
     material = _register_run_output_to_meta_pool_state(
         run_id=run_id,
@@ -78,49 +82,76 @@ def stage_run_output_to_meta(
         }
     ]
 
-    stage_calls = [
-        ("upload_video", "上传视频到 Meta", upload_video_to_meta, "video_id"),
-        ("upload_thumbnail", "上传缩略图到 Meta", upload_thumbnail_to_meta, "image_hash"),
-        ("create_creative", "创建广告创意", create_ad_creative_for_material, "creative_id"),
-        ("create_ad", "创建 PAUSED 广告", create_paused_ad_for_material, "ad_id"),
-    ]
+    if not perform_actual_upload:
+        steps.append(
+            {
+                "step": "skip_remote_upload",
+                "label": "跳过真实上传",
+                "status": "success",
+                "message": "本次只登记本地暂存池，未调用 Meta 素材上传。",
+            }
+        )
+        return {
+            "status": "registered_only",
+            "material_id": material_id,
+            "failed_step": "",
+            "steps": steps,
+            "material": material,
+            "meta_mapping": material.get("meta_mapping") or {},
+        }
+
+    upload_mode = str(remote_upload_mode or "library_only").strip().lower()
+    if upload_mode == "full_chain":
+        stage_calls = [
+            ("upload_video", "上传视频到 Meta", upload_video_to_meta, "video_id"),
+            ("upload_thumbnail", "上传缩略图到 Meta", upload_thumbnail_to_meta, "image_hash"),
+            ("create_creative", "创建广告创意", create_ad_creative_for_material, "creative_id"),
+            ("create_ad", "创建 PAUSED 广告", create_paused_ad_for_material, "ad_id"),
+        ]
+        success_status = "success"
+    else:
+        stage_calls = [
+            ("upload_video", "上传视频到 Meta 素材库", upload_video_to_meta, "video_id"),
+        ]
+        success_status = "library_uploaded"
 
     latest_material = material
-    for step_key, label, fn, mapping_key in stage_calls:
-        try:
-            latest_material = fn(material_id)
-            value = str((latest_material.get("meta_mapping") or {}).get(mapping_key) or "").strip()
-            steps.append(
-                {
-                    "step": step_key,
-                    "label": label,
-                    "status": "success",
-                    "message": f"{label}成功。",
-                    "value": value,
+    with meta_write_override(allow_meta_write_override):
+        for step_key, label, fn, mapping_key in stage_calls:
+            try:
+                latest_material = fn(material_id)
+                value = str((latest_material.get("meta_mapping") or {}).get(mapping_key) or "").strip()
+                steps.append(
+                    {
+                        "step": step_key,
+                        "label": label,
+                        "status": "success",
+                        "message": f"{label}成功。",
+                        "value": value,
+                    }
+                )
+            except Exception as exc:
+                latest_mapping = latest_material.get("meta_mapping") or {}
+                steps.append(
+                    {
+                        "step": step_key,
+                        "label": label,
+                        "status": "failed",
+                        "message": str(exc),
+                        "value": str(latest_mapping.get(mapping_key) or "").strip(),
+                    }
+                )
+                return {
+                    "status": "partial_failure",
+                    "material_id": material_id,
+                    "failed_step": step_key,
+                    "steps": steps,
+                    "material": latest_material,
+                    "meta_mapping": latest_mapping,
                 }
-            )
-        except Exception as exc:
-            latest_mapping = latest_material.get("meta_mapping") or {}
-            steps.append(
-                {
-                    "step": step_key,
-                    "label": label,
-                    "status": "failed",
-                    "message": str(exc),
-                    "value": str(latest_mapping.get(mapping_key) or "").strip(),
-                }
-            )
-            return {
-                "status": "partial_failure",
-                "material_id": material_id,
-                "failed_step": step_key,
-                "steps": steps,
-                "material": latest_material,
-                "meta_mapping": latest_mapping,
-            }
 
     return {
-        "status": "success",
+        "status": success_status,
         "material_id": material_id,
         "failed_step": "",
         "steps": steps,

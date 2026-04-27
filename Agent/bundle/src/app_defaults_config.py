@@ -9,7 +9,10 @@ from types import ModuleType
 from workspace_paths import PROJECT_ROOT
 
 
-DEFAULT_APP_CONFIG_PATH = PROJECT_ROOT / "configs" / "streamlit_app_defaults.py"
+AGENT_ROOT = PROJECT_ROOT.parent
+PRIMARY_APP_CONFIG_PATH = AGENT_ROOT / "config" / "streamlit_app_defaults.py"
+FALLBACK_APP_CONFIG_PATH = PROJECT_ROOT / "configs" / "streamlit_app_defaults.py"
+DEFAULT_APP_CONFIG_PATH = PRIMARY_APP_CONFIG_PATH if PRIMARY_APP_CONFIG_PATH.exists() else FALLBACK_APP_CONFIG_PATH
 
 
 def _resolve_config_path() -> Path:
@@ -18,7 +21,8 @@ def _resolve_config_path() -> Path:
         return DEFAULT_APP_CONFIG_PATH
     candidate = Path(configured)
     if not candidate.is_absolute():
-        candidate = (PROJECT_ROOT / candidate).resolve()
+        agent_candidate = (AGENT_ROOT / candidate).resolve()
+        candidate = agent_candidate if agent_candidate.exists() else (PROJECT_ROOT / candidate).resolve()
     return candidate
 
 

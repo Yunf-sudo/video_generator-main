@@ -81,8 +81,8 @@ def _render_meta_stage_result(result: dict[str, Any] | None) -> None:
         st.info("尚未执行 Meta 上传。")
         return
     status = str(result.get("status") or "").strip().lower()
-    if status == "success":
-        st.success("Meta 上传流程完成。")
+    if status in {"success", "library_uploaded"}:
+        st.success("Meta 素材库上传完成。")
     elif status == "blocked":
         st.warning(str(result.get("message") or "当前操作被阻止。"))
     else:
@@ -134,11 +134,11 @@ def main(settings: dict[str, Any]) -> None:
     )
 
     with overview_tab:
-        st.write("这个交接版目录只保留核心能力：统一配置、素材加载监控、只读 Meta 监控、生成命令桥接和健康检查。")
+        st.write("这个 Agent 目录现在按独立项目运行：统一配置、素材加载监控、Meta 监控、生成命令桥接和健康检查都只依赖 Agent 自己目录。")
         env_cols = st.columns(3)
         env_cols[0].metric("Agent .env", "存在" if env_info.get("agent_env_exists") else "缺失")
-        env_cols[1].metric("根目录 .env", "存在" if env_info.get("root_env_exists") else "缺失")
-        env_cols[2].metric("Meta Token", "已加载" if env_info.get("meta_token_present") else "缺失")
+        env_cols[1].metric("Meta Token", "已加载" if env_info.get("meta_token_present") else "缺失")
+        env_cols[2].metric("Token 来源", env_info.get("meta_token_source") or "未配置")
         _render_alerts(material_result["alerts"], limit=10)
 
     with material_tab:
@@ -385,43 +385,32 @@ def main(settings: dict[str, Any]) -> None:
 
         with upload_tab:
             st.markdown("#### Meta 上传")
-            st.caption("这里不自动上传。只有你手动打开开关并点击按钮，才会写入 Meta。直达广告组模式会在后台先上传 advideo，再创建 creative 和 PAUSED 广告，所以最终会出现在指定广告组里，而不只是停留在素材库。")
+            st.caption("这里不自动上传。只有你手动打开开关并点击按钮，才会真实写入 Meta 素材库。当前 Agent 默认不再尝试创建广告创意或广告。")
             meta_launch_preferences = load_meta_launch_preferences(settings)
             meta_upload_validation = validate_meta_upload_bridge(settings)
             st.info("当前前端已经取消剪映链路；这里只保留 Meta 上传。")
 
             defaults_cols = st.columns(2)
-            default_page_id = defaults_cols[0].text_input(
-                "默认 Page ID",
-                value=str(meta_launch_preferences.get("default_page_id") or ""),
-                key="meta_launch_default_page_id",
-            )
-            default_target_adset_id = defaults_cols[0].text_input(
-                "默认广告组 ID",
-                value=str(meta_launch_preferences.get("default_target_adset_id") or ""),
-                key="meta_launch_default_target_adset_id",
-            )
-            default_landing_page_url = defaults_cols[0].text_input(
-                "默认落地页",
-                value=str(meta_launch_preferences.get("default_landing_page_url") or ""),
-                key="meta_launch_default_landing_page_url",
-            )
-            default_ad_name = defaults_cols[1].text_input(
-                "默认广告名称",
-                value=str(meta_launch_preferences.get("default_ad_name") or ""),
-                key="meta_launch_default_ad_name",
-            )
-            default_creative_name = defaults_cols[1].text_input(
-                "默认创意名称",
-                value=str(meta_launch_preferences.get("default_creative_name") or ""),
-                key="meta_launch_default_creative_name",
+            default_page_id = str(meta_launch_preferences.get("default_page_id") or "")
+            default_target_adset_id = str(meta_launch_preferences.get("default_target_adset_id") or "")
+            default_landing_page_url = str(meta_launch_preferences.get("default_landing_page_url") or "")
+            defaults_cols[0].caption(f"默认广告账户：{meta_upload_validation.get('resolved_ad_account_id') or '-'}")
+            defaults_cols[0].caption(f"当前凭据来源：{meta_upload_validation.get('token_source') or '未解析'}")
+            defaults_cols[0].caption(f"默认 Page ID：{default_page_id or '-'}")
+            defaults_cols[0].caption(f"默认广告组 ID：{default_target_adset_id or '-'}")
+            defaults_cols[0].caption(f"默认落地页：{default_landing_page_url or '-'}")
+            default_video_name = defaults_cols[1].text_input(
+                "默认视频名称",
+                value=str(meta_launch_preferences.get("default_video_name") or meta_launch_preferences.get("default_ad_name") or ""),
+                key="meta_launch_default_video_name",
             )
             default_upload_mode = defaults_cols[1].selectbox(
                 "默认上传模式",
-                ["direct_adset", "material_only"],
-                index=["direct_adset", "material_only"].index(str(meta_launch_preferences.get("default_upload_mode") or "direct_adset")),
+                ["library_only"],
+                index=0,
                 key="meta_launch_default_upload_mode",
-                format_func=lambda item: "直达广告组（创建 PAUSED 广告）" if item == "direct_adset" else "仅登记本地素材",
+                format_func=lambda item: "Meta 素材库",
+                disabled=True,
             )
             default_enabled = st.checkbox(
                 "默认显示为允许上传",
@@ -435,9 +424,10 @@ def main(settings: dict[str, Any]) -> None:
                         "default_page_id": default_page_id,
                         "default_target_adset_id": default_target_adset_id,
                         "default_landing_page_url": default_landing_page_url,
-                        "default_ad_name": default_ad_name,
-                        "default_creative_name": default_creative_name,
-                        "default_upload_mode": default_upload_mode,
+                        "default_video_name": default_video_name,
+                        "default_ad_name": default_video_name,
+                        "default_creative_name": str(meta_launch_preferences.get("default_creative_name") or ""),
+                        "default_upload_mode": "library_only",
                         "enabled_by_default": default_enabled,
                     },
                 )
@@ -448,44 +438,21 @@ def main(settings: dict[str, Any]) -> None:
 
             source_type = st.radio("上传来源", ["最近生成成片", "已入库素材"], horizontal=True)
             allow_write = st.toggle(
-                "允许写入 Meta",
+                "允许写入 Meta 素材库",
                 value=bool(meta_launch_preferences.get("enabled_by_default", False)),
                 key="meta_upload_allow_write",
                 help="关闭时不会执行任何 Meta 写入。",
             )
             launch_cols = st.columns(2)
-            launch_page_id = launch_cols[0].text_input(
-                "本次 Page ID",
-                value=default_page_id,
-                key="meta_upload_page_id",
+            launch_cols[0].caption("当前模式：Meta 素材库上传")
+            if not meta_upload_validation.get("token_present"):
+                launch_cols[0].error("当前缺少 Meta token，无法真实上传到素材库。")
+            launch_video_name = launch_cols[1].text_input(
+                "本次视频名称",
+                value=default_video_name,
+                key="meta_upload_video_name",
             )
-            launch_target_adset_id = launch_cols[0].text_input(
-                "本次广告组 ID",
-                value=default_target_adset_id,
-                key="meta_upload_target_adset_id",
-            )
-            launch_landing_page_url = launch_cols[0].text_input(
-                "本次落地页",
-                value=default_landing_page_url,
-                key="meta_upload_landing_page_url",
-            )
-            launch_ad_name = launch_cols[1].text_input(
-                "本次广告名称",
-                value=default_ad_name,
-                key="meta_upload_ad_name",
-            )
-            launch_creative_name = launch_cols[1].text_input(
-                "本次创意名称",
-                value=default_creative_name,
-                key="meta_upload_creative_name",
-            )
-            launch_upload_mode = launch_cols[1].selectbox(
-                "本次上传模式",
-                ["direct_adset", "material_only"],
-                index=["direct_adset", "material_only"].index(default_upload_mode),
-                key="meta_upload_mode",
-                format_func=lambda item: "直达广告组（创建 PAUSED 广告）" if item == "direct_adset" else "仅登记本地素材",
-            )
+            launch_upload_mode = "library_only"
 
             if source_type == "最近生成成片":
                 outputs = recent_generation_outputs(settings)
@@ -503,7 +470,7 @@ def main(settings: dict[str, Any]) -> None:
                         "上传选中概念到 Meta",
                         key="upload_selected_concept_to_meta",
                         width="stretch",
-                        disabled=(launch_upload_mode == "direct_adset" and not allow_write),
+                        disabled=(not allow_write) or (not meta_upload_validation.get("token_present")),
                     ):
                         with st.spinner("正在上传最近生成概念到 Meta..."):
                             st.session_state["agent_meta_stage_result"] = stage_concept_to_meta(
@@ -511,15 +478,14 @@ def main(settings: dict[str, Any]) -> None:
                                 str(selected_concept.get("concept_report_path") or ""),
                                 upload_mode=launch_upload_mode,
                                 allow_write=allow_write,
-                                page_id=launch_page_id,
-                                target_adset_id=launch_target_adset_id,
-                                landing_page_url=launch_landing_page_url,
-                                ad_name=launch_ad_name,
-                                creative_name=launch_creative_name,
+                                page_id=default_page_id,
+                                target_adset_id=default_target_adset_id,
+                                landing_page_url=default_landing_page_url,
+                                video_name=launch_video_name,
                             )
                             meta_stage_result = st.session_state["agent_meta_stage_result"]
                 else:
-                    st.info("当前没有可用于直传的概念报告。先刷新生成状态，或先有一条已经生成完成的概念。")
+                    st.info("当前没有可用于上传的概念报告。先刷新生成状态，或先有一条已经生成完成的概念。")
             else:
                 material_options = {
                     f"{item.get('material_id')} | {item.get('launch_status')} | {item.get('review_status')}": item
@@ -534,7 +500,7 @@ def main(settings: dict[str, Any]) -> None:
                         "上传选中素材到 Meta",
                         key="upload_selected_material_to_meta",
                         width="stretch",
-                        disabled=(launch_upload_mode == "direct_adset" and not allow_write),
+                        disabled=(not allow_write) or (not meta_upload_validation.get("token_present")),
                     ):
                         with st.spinner("正在上传选中素材到 Meta..."):
                             st.session_state["agent_meta_stage_result"] = stage_material_to_meta(
@@ -542,11 +508,10 @@ def main(settings: dict[str, Any]) -> None:
                                 str(selected_material.get("material_id") or ""),
                                 upload_mode=launch_upload_mode,
                                 allow_write=allow_write,
-                                page_id=launch_page_id,
-                                target_adset_id=launch_target_adset_id,
-                                landing_page_url=launch_landing_page_url,
-                                ad_name=launch_ad_name,
-                                creative_name=launch_creative_name,
+                                page_id=default_page_id,
+                                target_adset_id=default_target_adset_id,
+                                landing_page_url=default_landing_page_url,
+                                video_name=launch_video_name,
                             )
                             meta_stage_result = st.session_state["agent_meta_stage_result"]
                 else:

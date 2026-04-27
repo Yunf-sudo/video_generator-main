@@ -7,9 +7,9 @@ import Sign
 import _bootstrap  # noqa: F401
 from google_gemini_api import extract_response_text, generate_content
 from rustfs_util import upload_file_to_rustfs
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
-load_dotenv()
+load_agent_bundle_env()
 
 STATUS_CODE_SUCCESS = 0
 

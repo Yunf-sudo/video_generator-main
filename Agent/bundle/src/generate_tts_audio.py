@@ -9,7 +9,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from media_pipeline import find_binary, probe_audio_duration, safe_file_uri
 from runtime_tunables_config import load_runtime_tunables
@@ -17,7 +17,7 @@ from rustfs_util import upload_file_to_rustfs
 from workspace_paths import PROJECT_ROOT, ensure_active_run
 
 
-load_dotenv()
+load_agent_bundle_env()
 
 DEFAULT_TTS_BUCKET = os.getenv("RUSTFS_BUCKET_NAME_AUDIO") or "audio-clips"
 LOCAL_VENDOR_SITE_PACKAGES = PROJECT_ROOT / "generated" / "cache" / "python_vendor"

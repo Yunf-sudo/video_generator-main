@@ -60,6 +60,7 @@ def stage_run_output_to_meta(
     source_inputs: dict[str, Any] | None,
     perform_actual_upload: bool = False,
     allow_meta_write_override: bool = False,
+    remote_upload_mode: str = "library_only",
 ) -> dict[str, Any]:
     material = _register_run_output_to_meta_pool_state(
         run_id=run_id,
@@ -87,7 +88,7 @@ def stage_run_output_to_meta(
                 "step": "skip_remote_upload",
                 "label": "跳过真实上传",
                 "status": "success",
-                "message": "本次只登记本地暂存池，未调用 Meta 上传、创意创建和广告创建。",
+                "message": "本次只登记本地暂存池，未调用 Meta 素材上传。",
             }
         )
         return {
@@ -99,12 +100,20 @@ def stage_run_output_to_meta(
             "meta_mapping": material.get("meta_mapping") or {},
         }
 
-    stage_calls = [
-        ("upload_video", "上传视频到 Meta", upload_video_to_meta, "video_id"),
-        ("upload_thumbnail", "上传缩略图到 Meta", upload_thumbnail_to_meta, "image_hash"),
-        ("create_creative", "创建广告创意", create_ad_creative_for_material, "creative_id"),
-        ("create_ad", "创建 PAUSED 广告", create_paused_ad_for_material, "ad_id"),
-    ]
+    upload_mode = str(remote_upload_mode or "library_only").strip().lower()
+    if upload_mode == "full_chain":
+        stage_calls = [
+            ("upload_video", "上传视频到 Meta", upload_video_to_meta, "video_id"),
+            ("upload_thumbnail", "上传缩略图到 Meta", upload_thumbnail_to_meta, "image_hash"),
+            ("create_creative", "创建广告创意", create_ad_creative_for_material, "creative_id"),
+            ("create_ad", "创建 PAUSED 广告", create_paused_ad_for_material, "ad_id"),
+        ]
+        success_status = "success"
+    else:
+        stage_calls = [
+            ("upload_video", "上传视频到 Meta 素材库", upload_video_to_meta, "video_id"),
+        ]
+        success_status = "library_uploaded"
 
     latest_material = material
     with meta_write_override(allow_meta_write_override):
@@ -142,7 +151,7 @@ def stage_run_output_to_meta(
                 }
 
     return {
-        "status": "success",
+        "status": success_status,
         "material_id": material_id,
         "failed_step": "",
         "steps": steps,

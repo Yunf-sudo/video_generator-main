@@ -5,7 +5,7 @@ import os
 import re
 import uuid
 
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from google_gemini_api import DEFAULT_TEXT_MODEL, extract_response_text, generate_content
 from input_translation import translate_inputs_to_english, translate_text_to_english
@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - optional dependency
     json_repair = None
 
 
-load_dotenv()
+load_agent_bundle_env()
 
 RUNTIME_TUNABLES = load_runtime_tunables()
 DEFAULT_SCRIPT_MODEL = os.getenv(

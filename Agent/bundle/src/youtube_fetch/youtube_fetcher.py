@@ -4,9 +4,9 @@ import uuid
 import json
 import re
 from typing import Dict, List, Optional
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
-load_dotenv()
+load_agent_bundle_env()
 
 import requests
 

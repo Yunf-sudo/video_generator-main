@@ -5,11 +5,11 @@ import mimetypes
 import uuid
 from pathlib import Path
 import requests
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 from prompts_en import generate_scene_pic_system_prompt, generate_scene_pic_user_prompt
 import re
 
-load_dotenv()
+load_agent_bundle_env()
 
 OPENROUTER_API_KEY = "sk-kww6u7AfYDmliGlw9lddZvJzobdn6bDDz30ubVDmJRKlBWEJ"
 # OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")

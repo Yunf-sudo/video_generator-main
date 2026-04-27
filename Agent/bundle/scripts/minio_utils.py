@@ -1,11 +1,11 @@
 import os
+import _bootstrap  # noqa: F401
 from minio import Minio
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 import uuid
-import os
 from datetime import datetime
 
-load_dotenv()
+load_agent_bundle_env()
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")

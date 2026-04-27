@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from generation_prompt_builder import compose_generation_prompt
 from media_pipeline import generate_local_clip, probe_media_duration
@@ -29,7 +29,7 @@ from runtime_tunables_config import load_runtime_tunables
 from workspace_paths import cache_root, ensure_active_run
 
 
-load_dotenv()
+load_agent_bundle_env()
 
 RUNTIME_TUNABLES = load_runtime_tunables()
 VIDEO_RUNTIME = RUNTIME_TUNABLES["video_runtime"]

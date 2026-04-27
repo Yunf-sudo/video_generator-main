@@ -12,23 +12,33 @@ from types import ModuleType
 from typing import Any
 
 from agent.config import agent_root, resolve_path, save_settings
-from agent.env import load_agent_env
+from agent.env import load_agent_env, meta_access_token_source, resolve_meta_access_token
 from agent.history import append_history
 
 
 _DEFAULT_META_LAUNCH = {
-    "base_ad_ops_config_path": "bundle/configs/ad_ops/material_flow_settings.py",
+    "base_ad_ops_config_path": "config/ad_ops/material_flow_settings.py",
     "runtime_override_path": "runtime/ad_ops.generated.py",
     "default_page_id": "325789213957232",
     "default_target_adset_id": "120244986089430635",
     "default_landing_page_url": "https://anywellshop.com/products/150kg-capacity-electric-wheelchair",
+    "default_video_name": "test",
     "default_ad_name": "test",
     "default_creative_name": "[Agent] test",
-    "default_upload_mode": "direct_adset",
+    "default_upload_mode": "library_only",
     "enabled_by_default": False,
 }
 
 _AD_OPS_KEYS = ["META_POOL_STATE", "META_ADS", "MONITOR_RULES"]
+
+
+def _normalize_upload_mode(value: str) -> str:
+    raw = str(value or "").strip().lower()
+    if raw == "direct_adset":
+        return "direct_adset"
+    if raw in {"library_only", "material_only"}:
+        return "library_only"
+    return "library_only"
 
 
 def _load_module_from_path(path: Path) -> ModuleType:
@@ -49,6 +59,10 @@ def _module_value(module: ModuleType, name: str, default: Any) -> Any:
 def load_meta_launch_preferences(settings: dict[str, Any]) -> dict[str, Any]:
     payload = copy.deepcopy(_DEFAULT_META_LAUNCH)
     payload.update(settings.get("meta_launch", {}) if isinstance(settings.get("meta_launch"), dict) else {})
+    payload["default_video_name"] = str(
+        payload.get("default_video_name") or payload.get("default_ad_name") or _DEFAULT_META_LAUNCH["default_video_name"]
+    ).strip()
+    payload["default_upload_mode"] = _normalize_upload_mode(str(payload.get("default_upload_mode") or "library_only"))
     return payload
 
 
@@ -59,9 +73,10 @@ def save_meta_launch_preferences(settings: dict[str, Any], payload: dict[str, An
             "default_page_id": str(payload.get("default_page_id") or current["default_page_id"]).strip(),
             "default_target_adset_id": str(payload.get("default_target_adset_id") or current["default_target_adset_id"]).strip(),
             "default_landing_page_url": str(payload.get("default_landing_page_url") or current["default_landing_page_url"]).strip(),
+            "default_video_name": str(payload.get("default_video_name") or current["default_video_name"]).strip(),
             "default_ad_name": str(payload.get("default_ad_name") or current["default_ad_name"]).strip(),
             "default_creative_name": str(payload.get("default_creative_name") or current["default_creative_name"]).strip(),
-            "default_upload_mode": str(payload.get("default_upload_mode") or current["default_upload_mode"]).strip(),
+            "default_upload_mode": _normalize_upload_mode(str(payload.get("default_upload_mode") or current["default_upload_mode"])),
             "enabled_by_default": bool(payload.get("enabled_by_default", current["enabled_by_default"])),
         }
     )
@@ -71,6 +86,7 @@ def save_meta_launch_preferences(settings: dict[str, Any], payload: dict[str, An
         "default_page_id": current["default_page_id"],
         "default_target_adset_id": current["default_target_adset_id"],
         "default_landing_page_url": current["default_landing_page_url"],
+        "default_video_name": current["default_video_name"],
         "default_ad_name": current["default_ad_name"],
         "default_creative_name": current["default_creative_name"],
         "default_upload_mode": current["default_upload_mode"],
@@ -139,10 +155,13 @@ def validate_meta_upload_bridge(settings: dict[str, Any]) -> dict[str, Any]:
     prefs = load_meta_launch_preferences(settings)
     base_path = base_ad_ops_config_path(settings)
     override_path = runtime_override_path(settings)
-    token_present = bool((os.getenv("META_ACCESS_TOKEN") or os.getenv("FACEBOOK_ACCESS_TOKEN") or "").strip())
+    token_present = bool(resolve_meta_access_token())
+    meta_ads = _load_base_ad_ops_payload(settings).get("META_ADS", {})
     return {
         "ok": base_path.exists(),
         "token_present": token_present,
+        "token_source": meta_access_token_source(),
+        "resolved_ad_account_id": str(meta_ads.get("ad_account_id") or "").strip(),
         "base_ad_ops_config_path": str(base_path),
         "base_exists": base_path.exists(),
         "runtime_override_path": str(override_path),
@@ -157,16 +176,18 @@ def stage_concept_to_meta(
     settings: dict[str, Any],
     concept_report_path: str,
     *,
-    upload_mode: str = "direct_adset",
+    upload_mode: str = "library_only",
     allow_write: bool = False,
     page_id: str = "",
     target_adset_id: str = "",
     landing_page_url: str = "",
+    video_name: str = "",
     ad_name: str = "",
     creative_name: str = "",
 ) -> dict[str, Any]:
     load_agent_env()
-    requires_write = str(upload_mode).strip().lower() == "direct_adset"
+    normalized_upload_mode = _normalize_upload_mode(upload_mode)
+    requires_write = normalized_upload_mode in {"library_only", "direct_adset"}
     if requires_write and not allow_write:
         result = {"status": "blocked", "message": "Meta 上传开关未开启。"}
         append_history(
@@ -178,7 +199,7 @@ def stage_concept_to_meta(
         )
         return result
 
-    if requires_write and not (os.getenv("META_ACCESS_TOKEN") or os.getenv("FACEBOOK_ACCESS_TOKEN")):
+    if requires_write and not resolve_meta_access_token():
         result = {"status": "blocked", "message": "缺少 META_ACCESS_TOKEN 或 FACEBOOK_ACCESS_TOKEN。"}
         append_history(
             settings,
@@ -208,13 +229,15 @@ def stage_concept_to_meta(
         "--concept-report-path",
         str(Path(concept_report_path).resolve()),
         "--action",
-        "direct_adset" if str(upload_mode).strip().lower() == "direct_adset" else "material_only",
+        normalized_upload_mode,
         "--page-id",
         str(page_id or "").strip(),
         "--target-adset-id",
         str(target_adset_id or "").strip(),
         "--landing-page-url",
         str(landing_page_url or "").strip(),
+        "--video-name",
+        str(video_name or "").strip(),
         "--ad-name",
         str(ad_name or "").strip(),
         "--creative-name",
@@ -239,7 +262,7 @@ def stage_concept_to_meta(
         title="上传最近生成成片到 Meta",
         payload={
             "concept_report_path": str(Path(concept_report_path).resolve()),
-            "upload_mode": upload_mode,
+            "upload_mode": normalized_upload_mode,
             "returncode": completed.returncode,
             "runtime_override_path": runtime_override["path"],
             "stdout_tail": (completed.stdout or "")[-2000:],
@@ -253,16 +276,18 @@ def stage_material_to_meta(
     settings: dict[str, Any],
     material_id: str,
     *,
-    upload_mode: str = "direct_adset",
+    upload_mode: str = "library_only",
     allow_write: bool = False,
     page_id: str = "",
     target_adset_id: str = "",
     landing_page_url: str = "",
+    video_name: str = "",
     ad_name: str = "",
     creative_name: str = "",
 ) -> dict[str, Any]:
     load_agent_env()
-    requires_write = str(upload_mode).strip().lower() == "direct_adset"
+    normalized_upload_mode = _normalize_upload_mode(upload_mode)
+    requires_write = normalized_upload_mode in {"library_only", "direct_adset"}
     if requires_write and not allow_write:
         result = {"status": "blocked", "message": "Meta 上传开关未开启。"}
         append_history(
@@ -274,7 +299,7 @@ def stage_material_to_meta(
         )
         return result
 
-    if requires_write and not (os.getenv("META_ACCESS_TOKEN") or os.getenv("FACEBOOK_ACCESS_TOKEN")):
+    if requires_write and not resolve_meta_access_token():
         result = {"status": "blocked", "message": "缺少 META_ACCESS_TOKEN 或 FACEBOOK_ACCESS_TOKEN。"}
         append_history(
             settings,
@@ -304,13 +329,15 @@ def stage_material_to_meta(
         "--material-id",
         str(material_id).strip(),
         "--action",
-        "direct_adset" if str(upload_mode).strip().lower() == "direct_adset" else "material_only",
+        normalized_upload_mode,
         "--page-id",
         str(page_id or "").strip(),
         "--target-adset-id",
         str(target_adset_id or "").strip(),
         "--landing-page-url",
         str(landing_page_url or "").strip(),
+        "--video-name",
+        str(video_name or "").strip(),
         "--ad-name",
         str(ad_name or "").strip(),
         "--creative-name",
@@ -335,7 +362,7 @@ def stage_material_to_meta(
         title="上传已入库素材到 Meta",
         payload={
             "material_id": str(material_id).strip(),
-            "upload_mode": upload_mode,
+            "upload_mode": normalized_upload_mode,
             "returncode": completed.returncode,
             "runtime_override_path": runtime_override["path"],
             "stdout_tail": (completed.stdout or "")[-2000:],

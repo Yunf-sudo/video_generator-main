@@ -8,13 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from dotenv import load_dotenv
 
 from agent.config import resolve_path
+from agent.env import load_agent_env, meta_access_token_source, resolve_meta_access_token
 from agent.history import append_history
 
-
-load_dotenv()
+load_agent_env()
 
 
 def _utc_now_iso() -> str:
@@ -28,7 +27,7 @@ def _token(settings: dict[str, Any]) -> str:
         value = (os.getenv(str(key)) or "").strip()
         if value:
             return value
-    return ""
+    return resolve_meta_access_token()
 
 
 def _state_path(settings: dict[str, Any]) -> Path:
@@ -270,6 +269,7 @@ def run_meta_monitor(settings: dict[str, Any], adset_ids: list[str] | None = Non
         "run_time": _utc_now_iso(),
         "read_only_mode": bool(meta.get("read_only", True)),
         "token_available": token_available,
+        "token_source": meta_access_token_source(),
         "results": [],
     }
     if not token_available:

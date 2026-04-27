@@ -8,7 +8,7 @@ import subprocess
 import unicodedata
 
 import requests
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from media_pipeline import (
     build_scene_audio_duration_map,
@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover - optional dependency
     Transcription = None
 
 
-load_dotenv()
+load_agent_bundle_env()
 if dashscope is not None:
     dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 

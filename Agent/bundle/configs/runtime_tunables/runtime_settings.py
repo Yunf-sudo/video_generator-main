@@ -45,6 +45,16 @@ APP_RUNTIME_FLAGS = {
 GOOGLE_API_RUNTIME = {
     # Gemini / Generative Language API 的基础地址。
     "google_api_base_url": "https://generativelanguage.googleapis.com/v1beta",
+    # Gemini 文本/图片接口的单次请求在限流或临时错误时最多重试次数。
+    "google_gemini_request_max_attempts": 5,
+    # Gemini 接口重试的基础退避时间，单位秒。
+    "google_gemini_retry_base_seconds": 5.0,
+    # Gemini 接口重试的最大退避时间，单位秒。
+    "google_gemini_retry_max_seconds": 45.0,
+    # Gemini 返回 429 时，至少等待多久再重试，单位秒。
+    "google_gemini_rate_limit_cooldown_seconds": 30.0,
+    # 每次重试额外加入的随机抖动上限，单位秒。
+    "google_gemini_retry_jitter_seconds": 1.0,
 }
 
 

@@ -19,7 +19,9 @@ from generate_scenes_pics_tools import generate_storyboard, repair_single_pic
 from generate_script_tools import generate_scripts, repair_script
 from generate_tts_audio import generate_tts_audio
 from generate_video_tools import generate_video_from_image_path, get_video_path_from_video_id
+from google_gemini_api import load_last_google_api_error_report
 from meta_ads_service import is_meta_dry_run_mode, is_meta_read_only_mode
+from meta_ads_service import has_meta_access_token, meta_access_token_source
 from meta_pool_state import (
     build_archive_feature_summary,
     inventory_snapshot,
@@ -89,7 +91,7 @@ RECOVERABLE_META_FILES = (
 )
 
 
-st.set_page_config(page_title="电动轮椅广告工作台", layout="wide")
+st.set_page_config(page_title="广告工作台", layout="wide")
 
 
 PROMPT_MANUAL_FALLBACKS = {
@@ -105,6 +107,35 @@ def _coerce_dict(value):
 
 def _coerce_list(value):
     return value if isinstance(value, list) else []
+
+
+def _display_generation_error(prefix: str, exc: Exception) -> None:
+    message = str(exc).strip()
+    lowered = message.lower()
+    google_related = "google 请求失败" in lowered or "gemini" in lowered or "google" in lowered
+    google_report = load_last_google_api_error_report() if google_related else {}
+    failure_reason = str(google_report.get("failure_reason") or "").strip()
+    suggestion = str(google_report.get("suggestion") or "").strip()
+    report_path = str(google_report.get("report_path") or "").strip()
+    if google_related and failure_reason:
+        details = f"{prefix}：{failure_reason}"
+        if suggestion:
+            details += f"\n\n建议：{suggestion}"
+        if report_path:
+            details += f"\n\n诊断文件：{report_path}"
+        details += f"\n\n原始错误：{message}"
+        st.error(details)
+        with st.expander("查看 Google 失败详情", expanded=False):
+            st.json(google_report)
+        return
+    if "429" in lowered or "too many requests" in lowered:
+        st.error(
+            f"{prefix}：Gemini 当前触发限流，系统已自动重试但仍未恢复。"
+            "建议等待 1-2 分钟后重试，避免连续多次点击；如有需要可切换到更轻量模型。"
+            f"\n\n原始错误：{message}"
+        )
+        return
+    st.error(f"{prefix}：{message}")
 
 
 def _brief_widget_key(name: str) -> str:
@@ -151,10 +182,19 @@ def _render_meta_stage_report(report: dict | None) -> None:
 
     if status == "success":
         st.success(f"Meta 链路已跑通：素材 {material_id} 已创建到广告层。")
+    elif status == "library_uploaded":
+        st.success(f"素材 {material_id} 已真实上传到 Meta 素材库。")
     elif status == "registered_only":
         st.info(f"素材 {material_id} 已写入本地 Meta 暂存池，本次未执行真实上传。")
     elif status == "partial_failure":
         st.warning(f"Meta 链路在 {failed_step or '未知步骤'} 卡住，但前置成功步骤已经保留。")
+        for item in steps:
+            if str(item.get("step") or "") != "create_creative":
+                continue
+            message = str(item.get("message") or "")
+            if "应用仍在开发中" in message or "开发状态" in message:
+                st.error("当前视频和缩略图已经真实上传成功，但 Meta 应用仍处于开发模式，平台拒绝创建广告创意。要继续创建广告，必须把对应 Meta 应用切到 Live 模式，或更换为 Live 模式下签发的系统用户 token。")
+                break
 
     for item in steps:
         step_status = str(item.get("status") or "")
@@ -171,6 +211,47 @@ def _render_meta_stage_report(report: dict | None) -> None:
     if meta_mapping:
         st.markdown("**当前 Meta 映射**")
         st.json(meta_mapping)
+
+
+def _meta_upload_preflight(upload_mode: str = "library_only") -> dict[str, object]:
+    token_present = has_meta_access_token()
+    token_source = meta_access_token_source()
+    resolved_upload_mode = str(upload_mode or "library_only").strip().lower()
+    ad_account_id = (os.getenv("META_AD_ACCOUNT_ID") or str(_coerce_dict(AD_OPS_CONFIG.get("meta_ads")).get("ad_account_id") or "")).strip()
+    page_id = (os.getenv("META_PAGE_ID") or str(_coerce_dict(AD_OPS_CONFIG.get("meta_ads")).get("page_id") or "")).strip()
+    default_adset_ids = _coerce_list(_coerce_dict(AD_OPS_CONFIG.get("meta_ads")).get("default_target_adset_ids"))
+    target_adset_id = (os.getenv("META_DEFAULT_ADSET_ID") or next((str(item).strip() for item in default_adset_ids if str(item).strip()), "")).strip()
+    landing_page_url = (
+        os.getenv("META_DEFAULT_LANDING_PAGE_URL")
+        or str(_coerce_dict(AD_OPS_CONFIG.get("meta_ads")).get("default_landing_page_url") or "")
+    ).strip()
+
+    missing: list[str] = []
+    if not token_present:
+        missing.append("META_ACCESS_TOKEN / FACEBOOK_ACCESS_TOKEN")
+    if not ad_account_id:
+        missing.append("META_AD_ACCOUNT_ID")
+    if resolved_upload_mode == "full_chain":
+        if not page_id:
+            missing.append("META_PAGE_ID")
+        if not target_adset_id:
+            missing.append("META_DEFAULT_ADSET_ID")
+        if not landing_page_url:
+            missing.append("META_DEFAULT_LANDING_PAGE_URL")
+
+    return {
+        "ready": not missing,
+        "upload_mode": resolved_upload_mode,
+        "missing": missing,
+        "resolved": {
+            "ad_account_id": ad_account_id,
+            "page_id": page_id,
+            "target_adset_id": target_adset_id,
+            "landing_page_url": landing_page_url,
+            "token_present": token_present,
+            "token_source": token_source,
+        },
+    }
 
 
 def _get_query_run_id() -> str:
@@ -950,7 +1031,7 @@ def render_sidebar() -> None:
 
 
 def render_header() -> None:
-    st.title("电动轮椅广告工作台")
+    st.title("广告工作台")
     st.caption("围绕同一台电动轮椅生成脚本、分镜、远端动态片段、配音字幕和最终成片。")
 
     cols = st.columns(5)
@@ -1246,7 +1327,7 @@ def render_script_tab() -> None:
                 generate_script_step()
                 st.success("脚本已生成。")
             except Exception as exc:
-                st.error(f"脚本生成失败：{exc}")
+                _display_generation_error("脚本生成失败", exc)
 
     script = st.session_state.get("script")
     scenes = scene_list(script)
@@ -1302,7 +1383,7 @@ def render_script_tab() -> None:
                 st.success("脚本已更新。")
                 st.rerun()
             except Exception as exc:
-                st.error(f"脚本修改失败：{exc}")
+                _display_generation_error("脚本修改失败", exc)
 
 
 def render_storyboard_tab() -> None:
@@ -1317,7 +1398,7 @@ def render_storyboard_tab() -> None:
                 generate_storyboard_step()
                 st.success("分镜图已生成。")
             except Exception as exc:
-                st.error(f"分镜图生成失败：{exc}")
+                _display_generation_error("分镜图生成失败", exc)
 
     frames = ordered_storyboard()
     if not frames:
@@ -1359,7 +1440,7 @@ def render_storyboard_tab() -> None:
                             st.success("分镜已更新。")
                             st.rerun()
                         except Exception as exc:
-                            st.error(f"分镜修改失败：{exc}")
+                            _display_generation_error("分镜修改失败", exc)
 
 
 def render_clips_tab() -> None:
@@ -1494,6 +1575,8 @@ def render_export_tab() -> None:
     if isinstance(final_result, dict) and final_result.get("video_path"):
         meta_dry_run = is_meta_dry_run_mode()
         meta_read_only = is_meta_read_only_mode()
+        preflight = _meta_upload_preflight()
+        resolved_meta = _coerce_dict(preflight.get("resolved"))
         st.video(final_result["video_path"])
         st.caption(final_result["video_path"])
         subtitle_path = str(final_result.get("subtitle_path") or "").strip()
@@ -1504,22 +1587,32 @@ def render_export_tab() -> None:
             st.caption(f"字幕文件：{subtitle_path}")
         st.markdown("### 下一步")
         upload_toggle = st.checkbox(
-            "本次执行真实上传到 Meta（会写入广告账户并创建 PAUSED 广告）",
+            "本次执行真实上传到 Meta 素材库",
             value=bool(st.session_state.get("export_actual_meta_upload", False)),
             key="export_actual_meta_upload",
         )
         if upload_toggle:
             if meta_dry_run:
-                st.warning("当前全局是 Dry Run，但你已经打开了本次真实上传开关。点击上传时会绕过 Dry Run，直接写入 Meta。")
+                st.warning("当前全局是 Dry Run，但你已经打开了本次真实上传开关。点击上传时会绕过 Dry Run，直接上传到 Meta 素材库。")
             elif meta_read_only:
                 st.warning("当前全局是只读模式，但你已经打开了本次真实上传开关。点击上传时会仅对这一次放开真实写入。")
             else:
-                st.warning("你已开启真实上传。点击按钮后会把当前成片上传到 Meta，并继续创建创意和 PAUSED 广告。")
+                st.warning("你已开启真实上传。点击按钮后会把当前成片上传到 Meta 素材库。")
+            st.caption(f"目标广告账户：{resolved_meta.get('ad_account_id') or '-'}")
+            if resolved_meta.get("token_source"):
+                st.caption(f"当前凭据来源：{resolved_meta.get('token_source')}")
+            if not bool(preflight.get("ready")):
+                st.error(
+                    "当前缺少真实上传所需配置："
+                    + "、".join([str(item) for item in _coerce_list(preflight.get("missing"))])
+                    + "。请先补齐后再上传。"
+                )
         else:
-            st.write("正式成片已经准备好。默认只会把当前 Run 登记到本地 Meta 暂存池，不调用 Meta 上传、创意创建和广告创建。")
+            st.write("正式成片已经准备好。默认只会把当前 Run 登记到本地 Meta 暂存池，不调用 Meta 素材上传。")
         next_cols = st.columns(2)
-        upload_button_label = "当前 Run 一键上传到 Meta" if upload_toggle else "当前 Run 仅登记到本地暂存池"
-        if next_cols[0].button(upload_button_label, use_container_width=True):
+        upload_button_label = "当前 Run 上传到 Meta 素材库" if upload_toggle else "当前 Run 仅登记到本地暂存池"
+        upload_disabled = upload_toggle and not bool(preflight.get("ready"))
+        if next_cols[0].button(upload_button_label, use_container_width=True, disabled=upload_disabled):
             with st.spinner("正在把当前成片接入 Meta 链路..."):
                 try:
                     upload_report = stage_run_output_to_meta(
@@ -1530,6 +1623,7 @@ def render_export_tab() -> None:
                         source_inputs=st.session_state.get("inputs"),
                         perform_actual_upload=upload_toggle,
                         allow_meta_write_override=upload_toggle,
+                        remote_upload_mode="library_only",
                     )
                     st.session_state["last_meta_stage_result"] = upload_report
                 except Exception as exc:
@@ -1620,15 +1714,42 @@ def render_ad_ops_tab() -> None:
     if isinstance(current_run_result, dict) and current_run_result.get("video_path"):
         with st.container(border=True):
             st.markdown("#### 当前 Run 快捷操作")
+            preflight = _meta_upload_preflight()
+            resolved_meta = _coerce_dict(preflight.get("resolved"))
             if meta_read_only:
                 st.caption(
-                    f"当前 Run 已有正式成片：{st.session_state.get('run_id', '')}。当前项目是只读模式，这里不执行上传，只保留后续监控和规则校验。"
+                    f"当前 Run 已有正式成片：{st.session_state.get('run_id', '')}。当前项目默认是只读模式，但你可以在下面单次打开真实上传。"
                 )
             else:
                 st.caption(
                     f"当前 Run 已有正式成片：{st.session_state.get('run_id', '')}。如果要把这一条内容接入广告链路，直接上传到 Meta 并保持关停即可。"
                 )
-            if st.button("当前 Run 上传到 Meta 暂存池（关停）", use_container_width=True, disabled=meta_read_only):
+            ops_upload_toggle = st.checkbox(
+                "当前 Run 本次执行真实上传到 Meta 素材库",
+                value=bool(st.session_state.get("ops_actual_meta_upload", False)),
+                key="ops_actual_meta_upload",
+            )
+            if ops_upload_toggle:
+                if meta_dry_run:
+                    st.warning("当前全局是 Dry Run，但你已经打开了本次真实上传开关。点击上传时会绕过 Dry Run，直接上传到 Meta 素材库。")
+                elif meta_read_only:
+                    st.warning("当前全局是只读模式，但你已经打开了本次真实上传开关。点击上传时会仅对这一次放开真实写入。")
+                else:
+                    st.warning("你已开启真实上传。点击后会把当前成片上传到 Meta 素材库。")
+                st.caption(f"目标广告账户：{resolved_meta.get('ad_account_id') or '-'}")
+                if resolved_meta.get("token_source"):
+                    st.caption(f"当前凭据来源：{resolved_meta.get('token_source')}")
+                if not bool(preflight.get("ready")):
+                    st.error(
+                        "当前缺少真实上传所需配置："
+                        + "、".join([str(item) for item in _coerce_list(preflight.get("missing"))])
+                        + "。请先补齐后再上传。"
+                    )
+            else:
+                st.caption("默认只会把当前 Run 登记到本地 Meta 暂存池，不会真实上传到 Meta 素材库。")
+            ops_upload_label = "当前 Run 上传到 Meta 素材库" if ops_upload_toggle else "当前 Run 仅登记到本地暂存池"
+            ops_upload_disabled = ops_upload_toggle and not bool(preflight.get("ready"))
+            if st.button(ops_upload_label, use_container_width=True, disabled=ops_upload_disabled):
                 try:
                     st.session_state["last_meta_stage_result"] = stage_run_output_to_meta(
                         run_id=str(st.session_state.get("run_id") or ""),
@@ -1636,6 +1757,9 @@ def render_ad_ops_tab() -> None:
                         script=st.session_state.get("script"),
                         ti_intro=st.session_state.get("ti_intro"),
                         source_inputs=st.session_state.get("inputs"),
+                        perform_actual_upload=ops_upload_toggle,
+                        allow_meta_write_override=ops_upload_toggle,
+                        remote_upload_mode="library_only",
                     )
                 except Exception as exc:
                     st.session_state["last_meta_stage_result"] = {

@@ -1,5 +1,5 @@
 import os
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 import uuid
 
 from media_pipeline import copy_to_local_storage, safe_file_uri
@@ -11,7 +11,7 @@ except ImportError:  # pragma: no cover - optional dependency
     boto3 = None
     Config = None
 
-load_dotenv()
+load_agent_bundle_env()
 
 s3 = (
     boto3.client(

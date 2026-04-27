@@ -45,6 +45,8 @@ def _apply_overrides(material_id: str, args: argparse.Namespace) -> dict[str, An
         patch["target_adset_id"] = str(args.target_adset_id).strip()
     if str(args.landing_page_url or "").strip():
         patch["landing_page_url"] = str(args.landing_page_url).strip()
+    if str(args.video_name or "").strip():
+        patch["desired_video_name"] = str(args.video_name).strip()
     if str(args.ad_name or "").strip():
         patch["desired_ad_name"] = str(args.ad_name).strip()
     if str(args.creative_name or "").strip():
@@ -54,12 +56,13 @@ def _apply_overrides(material_id: str, args: argparse.Namespace) -> dict[str, An
     return update_material_record(material_id, patch)
 
 
-def _stage_existing_material(material_id: str, *, direct_adset: bool) -> dict[str, Any]:
+def _stage_existing_material(material_id: str, *, upload_mode: str) -> dict[str, Any]:
     material = load_material_record(material_id)
     mapping = material.get("meta_mapping") or {}
     steps: list[dict[str, Any]] = []
+    normalized_mode = str(upload_mode or "library_only").strip().lower()
 
-    if not direct_adset:
+    if normalized_mode == "material_only":
         return {
             "status": "success",
             "material_id": material_id,
@@ -68,12 +71,19 @@ def _stage_existing_material(material_id: str, *, direct_adset: bool) -> dict[st
             "meta_mapping": mapping,
         }
 
-    pipeline = [
-        ("video_id", "upload_video", "上传视频到 Meta", upload_video_to_meta),
-        ("image_hash", "upload_thumbnail", "上传缩略图到 Meta", upload_thumbnail_to_meta),
-        ("creative_id", "create_creative", "创建广告创意", create_ad_creative_for_material),
-        ("ad_id", "create_ad", "创建 PAUSED 广告", create_paused_ad_for_material),
-    ]
+    if normalized_mode == "direct_adset":
+        pipeline = [
+            ("video_id", "upload_video", "上传视频到 Meta", upload_video_to_meta),
+            ("image_hash", "upload_thumbnail", "上传缩略图到 Meta", upload_thumbnail_to_meta),
+            ("creative_id", "create_creative", "创建广告创意", create_ad_creative_for_material),
+            ("ad_id", "create_ad", "创建 PAUSED 广告", create_paused_ad_for_material),
+        ]
+        final_status = "success"
+    else:
+        pipeline = [
+            ("video_id", "upload_video", "上传视频到 Meta 素材库", upload_video_to_meta),
+        ]
+        final_status = "library_uploaded"
 
     latest = material
     for mapping_key, step_key, label, fn in pipeline:
@@ -103,7 +113,7 @@ def _stage_existing_material(material_id: str, *, direct_adset: bool) -> dict[st
         )
 
     return {
-        "status": "success",
+        "status": final_status,
         "material_id": material_id,
         "steps": steps,
         "material": latest,
@@ -130,6 +140,7 @@ def _register_concept(args: argparse.Namespace) -> dict[str, Any]:
         "page_id": str(args.page_id or "").strip(),
         "target_adset_id": str(args.target_adset_id or "").strip(),
         "landing_page_url": str(args.landing_page_url or "").strip(),
+        "desired_video_name": str(args.video_name or "").strip(),
         "desired_ad_name": str(args.ad_name or "").strip(),
         "desired_creative_name": str(args.creative_name or "").strip(),
     }
@@ -153,12 +164,13 @@ def _register_concept(args: argparse.Namespace) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stage Agent bundle output into Meta via bundled ad pipeline.")
     parser.add_argument("--mode", choices=["concept", "material"], required=True)
-    parser.add_argument("--action", choices=["material_only", "direct_adset"], default="direct_adset")
+    parser.add_argument("--action", choices=["material_only", "library_only", "direct_adset"], default="library_only")
     parser.add_argument("--concept-report-path", default="")
     parser.add_argument("--material-id", default="")
     parser.add_argument("--page-id", default="")
     parser.add_argument("--target-adset-id", default="")
     parser.add_argument("--landing-page-url", default="")
+    parser.add_argument("--video-name", default="")
     parser.add_argument("--ad-name", default="")
     parser.add_argument("--creative-name", default="")
     return parser.parse_args()
@@ -180,8 +192,8 @@ def main() -> int:
             "registered_material": material,
         }
 
-    if args.action == "direct_adset":
-        staged = _stage_existing_material(material_id, direct_adset=True)
+    if args.action in {"library_only", "direct_adset"}:
+        staged = _stage_existing_material(material_id, upload_mode=args.action)
         result.update(staged)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

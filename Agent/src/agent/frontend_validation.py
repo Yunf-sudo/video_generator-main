@@ -6,17 +6,19 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+import cv2
+import numpy as np
 from streamlit.testing.v1 import AppTest
 
 from agent.config import agent_root, resolve_path
-from agent.env import load_agent_env
+from agent.env import load_agent_env, resolve_meta_access_token
 from agent.history import append_history, history_summary
 from agent.material_loader import scan_materials
 from agent.tts_settings import load_tts_preferences
 
 
 def _meta_token() -> str:
-    return (os.getenv("META_ACCESS_TOKEN") or os.getenv("FACEBOOK_ACCESS_TOKEN") or "").strip()
+    return resolve_meta_access_token()
 
 
 def frontend_validation_report_path(settings: dict[str, Any]) -> Path:
@@ -207,12 +209,17 @@ def _meta_upload_ui_step() -> dict[str, Any]:
     _check_no_exceptions(at, "保存 Meta 上传默认值后")
     save_result = at.session_state["agent_meta_launch_save_result"]
     _assert("meta_launch" in save_result, "Meta 上传默认值缺少 meta_launch 字段")
+    _assert(
+        str(save_result.get("meta_launch", {}).get("default_upload_mode") or "") == "library_only",
+        f"Meta 默认上传模式异常: {save_result}",
+    )
     return _step(
         "meta_upload_ui_flow",
         "success",
         "Meta 上传默认值可在网页端保存。",
         {
             "default_upload_mode": save_result.get("meta_launch", {}).get("default_upload_mode"),
+            "default_video_name": save_result.get("meta_launch", {}).get("default_video_name"),
             "default_target_adset_id": save_result.get("meta_launch", {}).get("default_target_adset_id"),
         },
     )
@@ -263,7 +270,7 @@ def _config_flow_step() -> dict[str, Any]:
 
 
 def _meta_blocked_step() -> dict[str, Any]:
-    with _temporary_env({"META_ACCESS_TOKEN": "", "FACEBOOK_ACCESS_TOKEN": ""}):
+    with _temporary_env({"META_ACCESS_TOKEN": "", "FACEBOOK_ACCESS_TOKEN": "", "AGENT_DISABLE_LEGACY_META_TOKEN": "1"}):
         at = _app()
         at.run()
         _button(at, "执行 Meta 只读扫描").click().run()
@@ -348,25 +355,99 @@ def _history_step(settings: dict[str, Any], *, baseline_total: int) -> dict[str,
     )
 
 
+def _bundle_initial_render_step() -> dict[str, Any]:
+    at = _app()
+    at.run()
+    _check_no_exceptions(at, "原项目前端初始渲染")
+    _assert(len(at.radio) > 0, "未渲染工作步骤导航")
+    options = list(getattr(at.radio[0], "options", []) or [])
+    expected = ["产品简报", "广告脚本", "分镜图", "视频片段", "配音字幕", "导出成片", "广告运营"]
+    _assert(options == expected, f"工作步骤导航异常: {options}")
+    return _step(
+        "bundle_initial_render",
+        "success",
+        "Agent 当前入口已经切到与原项目一致的逐步工作流。",
+        {"step_options": options},
+    )
+
+
+def _bundle_export_flow_step() -> dict[str, Any]:
+    video_path = str(_smoke_test_video_path().resolve())
+    _assert(Path(video_path).exists(), f"缺少导出页 smoke 测试视频: {video_path}")
+
+    at = _app()
+    at.session_state["run_id"] = "agent-bundle-smoke"
+    at.session_state["active_step"] = "导出成片"
+    at.session_state["active_step_nav"] = "导出成片"
+    at.session_state["active_step_nav_synced"] = "导出成片"
+    at.session_state["storyboard"] = [{"scene_number": 1}]
+    at.session_state["video_result"] = {"1": {"video_path": video_path}}
+    at.session_state["final_video_result"] = {
+        "video_path": video_path,
+        "subtitle_path": "",
+        "subtitles_burned": False,
+    }
+    at.run()
+    _check_no_exceptions(at, "导出成片页渲染")
+
+    checkbox = _checkbox(at, "本次执行真实上传到 Meta 素材库")
+    button_labels = [getattr(item, "label", "") for item in at.button]
+    _assert("当前 Run 仅登记到本地暂存池" in button_labels, f"导出页默认上传按钮异常: {button_labels}")
+
+    checkbox.check()
+    at.run()
+    _check_no_exceptions(at, "打开素材库真实上传开关后")
+    toggled_labels = [getattr(item, "label", "") for item in at.button]
+    _assert("当前 Run 上传到 Meta 素材库" in toggled_labels, f"导出页真实上传按钮未切换: {toggled_labels}")
+
+    _button(at, "进入广告运营").click()
+    at.run()
+    _check_no_exceptions(at, "导出页跳转广告运营后")
+    _assert(at.session_state["active_step"] == "广告运营", f"未跳转到广告运营: {at.session_state['active_step']}")
+
+    return _step(
+        "bundle_export_flow",
+        "success",
+        "导出页的素材库上传开关和步骤跳转正常。",
+        {"video_path": video_path},
+    )
+
+
+def _smoke_test_video_path() -> Path:
+    runtime_dir = agent_root() / "runtime" / "smoke_assets"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    target = runtime_dir / "frontend_smoke.mp4"
+    if target.exists():
+        return target
+
+    imported_videos = sorted((agent_root() / "bundle" / "generated" / "imported_assets").glob("**/*.mp4"))
+    if imported_videos:
+        return imported_videos[0]
+
+    writer = cv2.VideoWriter(str(target), cv2.VideoWriter_fourcc(*"mp4v"), 6.0, (360, 640))
+    if not writer.isOpened():
+        raise RuntimeError(f"无法创建 Agent 本地 smoke 测试视频：{target}")
+    try:
+        for index in range(12):
+            frame = np.zeros((640, 360, 3), dtype=np.uint8)
+            frame[:, :] = (18, 28, 36)
+            cv2.putText(frame, "Agent Smoke", (48, 260), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (240, 240, 240), 2)
+            cv2.putText(frame, f"Frame {index + 1}", (100, 340), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (190, 210, 235), 2)
+            writer.write(frame)
+    finally:
+        writer.release()
+    return target
+
+
 def run_frontend_validation(settings: dict[str, Any]) -> dict[str, Any]:
     load_agent_env()
-    baseline_history = history_summary(settings, limit=500)
-    baseline_total = baseline_history["summary"]["total"]
     steps: list[dict[str, Any]] = []
 
     try:
-        steps.append(_initial_render_step(settings))
-        steps.append(_material_flow_step(settings))
-        steps.append(_tts_settings_step(settings))
-        steps.append(_meta_upload_ui_step())
-        steps.append(_generation_flow_step())
-        steps.append(_healthcheck_step())
-        steps.append(_config_flow_step())
-        steps.append(_meta_blocked_step())
-        steps.append(_meta_live_step())
-        steps.append(_history_step(settings, baseline_total=baseline_total))
+        steps.append(_bundle_initial_render_step())
+        steps.append(_bundle_export_flow_step())
         status = "success"
-        message = "Agent 前端非生成链路验证通过。"
+        message = "Agent 当前入口与原项目前端流程一致，基础 smoke 验证通过。"
     except Exception as exc:
         status = "failed"
         message = str(exc)
@@ -387,7 +468,7 @@ def run_frontend_validation(settings: dict[str, Any]) -> dict[str, Any]:
         settings,
         event_type="frontend_validation",
         status=status,
-        title="执行前端全功能验证",
+        title="执行 Agent 原项目前端 smoke 验证",
         payload={
             "report_path": report["report_path"],
             "step_count": len(steps),

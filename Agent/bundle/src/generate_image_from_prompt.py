@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import os
 
-from dotenv import load_dotenv
+from agent_bundle_env import load_agent_bundle_env
 
 from google_gemini_api import DEFAULT_IMAGE_MODEL, generate_image
 
 
-load_dotenv()
+load_agent_bundle_env()
 
 
 def generate_image_from_prompt(

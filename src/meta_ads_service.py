@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import ast
+from functools import lru_cache
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -15,6 +17,7 @@ from dotenv import load_dotenv
 
 from ad_ops_config import load_ad_ops_config
 from meta_pool_state import append_material_event, load_material_record, update_material_record
+from workspace_paths import PROJECT_ROOT
 
 load_dotenv()
 
@@ -25,8 +28,51 @@ META_POOL_STATE_CONFIG = AD_OPS_CONFIG["meta_pool_state"]
 _META_FORCE_WRITE = ContextVar("meta_force_write", default=False)
 
 
+@lru_cache(maxsize=1)
+def _legacy_facebook_access_token() -> str:
+    candidate = (PROJECT_ROOT / "facebook.py").resolve()
+    if not candidate.exists():
+        return ""
+    try:
+        module = ast.parse(candidate.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    for node in module.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "ACCESS_TOKEN":
+                value = getattr(node, "value", None)
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    return value.value.strip()
+    return ""
+
+
+def resolve_meta_access_token() -> str:
+    return (
+        os.getenv("META_ACCESS_TOKEN")
+        or os.getenv("FACEBOOK_ACCESS_TOKEN")
+        or _legacy_facebook_access_token()
+        or ""
+    ).strip()
+
+
+def has_meta_access_token() -> bool:
+    return bool(resolve_meta_access_token())
+
+
+def meta_access_token_source() -> str:
+    if (os.getenv("META_ACCESS_TOKEN") or "").strip():
+        return "META_ACCESS_TOKEN"
+    if (os.getenv("FACEBOOK_ACCESS_TOKEN") or "").strip():
+        return "FACEBOOK_ACCESS_TOKEN"
+    if _legacy_facebook_access_token():
+        return "facebook.py ACCESS_TOKEN"
+    return ""
+
+
 def _meta_access_token() -> str:
-    token = (os.getenv("META_ACCESS_TOKEN") or os.getenv("FACEBOOK_ACCESS_TOKEN") or "").strip()
+    token = resolve_meta_access_token()
     if not token:
         raise RuntimeError("缺少 META_ACCESS_TOKEN 或 FACEBOOK_ACCESS_TOKEN。")
     return token

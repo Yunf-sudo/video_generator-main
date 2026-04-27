@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.config import resolve_path
-from agent.env import load_agent_env
+from agent.env import load_agent_env, resolve_meta_access_token
 from agent.generation_bridge import validate_generation_bridge
 from agent.history import append_history
 from agent.material_loader import scan_materials
@@ -39,7 +39,7 @@ def run_healthcheck(settings: dict[str, Any], *, include_meta: bool = False) -> 
         "tts_runtime": validate_tts_runtime_bridge(settings),
         "meta_upload_bridge": validate_meta_upload_bridge(settings),
         "materials": materials["summary"],
-        "token_present": bool((os.getenv("META_ACCESS_TOKEN") or os.getenv("FACEBOOK_ACCESS_TOKEN") or "").strip()),
+        "token_present": bool(resolve_meta_access_token()),
         "environment": env_info,
     }
 

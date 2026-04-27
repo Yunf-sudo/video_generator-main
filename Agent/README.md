@@ -13,6 +13,19 @@
 - 健康检查
 - 前端工作台
 
+当前默认前端入口 [app.py](/Users/yf/Downloads/wok/video_v1/Agent/app.py) 已经切回与原项目一致的逐步工作流。
+
+这一版现在按“单目录可落地”收口：
+
+- 运行时只读取 `Agent/.env`
+- 不再回退到项目根目录 `.env`
+- 不再依赖 `facebook.py` 里的 token
+- `streamlit run Agent/app.py` 打开的就是默认前端入口
+- `Agent/bundle/` 内部资源足够支撑前端、生成桥接、素材扫描和 Meta 监控
+
+- 打开 `Agent/app.py` 时，看到的是和原项目一致的“产品简报 -> 广告脚本 -> 分镜图 -> 视频片段 -> 配音字幕 -> 导出成片 -> 广告运营”流程
+- `src/agent/dashboard.py` 这套自定义工作台不再作为默认入口
+
 这个目录默认是安全模式：
 
 - Meta 监控只读
@@ -142,7 +155,7 @@ python Agent/scripts/import_legacy_assets.py
 
 #### 4. Meta 只读监控
 
-监控逻辑沿用了你们现有项目和 `facebook.py` 的核心判断方式，但在交接版中只保留只读行为。
+监控逻辑沿用了你们现有项目的核心判断方式，但在交接版中只保留只读行为。
 
 监控会读取：
 
@@ -233,19 +246,11 @@ python Agent/scripts/import_legacy_assets.py
 1. 打开“允许写入 Meta”
 2. 点击上传按钮
 
-支持两种模式：
+当前默认模式已经收敛成：
 
-- `仅登记本地素材`
-- `直达广告组（创建 PAUSED 广告）`
+- `Meta 素材库`
 
-其中“直达广告组”并不是只把视频放进素材库。它会顺序完成：
-
-- 上传 advideo
-- 上传缩略图
-- 创建 creative
-- 在指定 adset 下创建 `PAUSED` 广告
-
-所以最终会直接出现在广告组里。
+也就是只真实上传 `advideo` 到 Meta 素材库，不再默认尝试创建 creative 或广告。
 
 同时也支持两类来源：
 
@@ -289,16 +294,17 @@ Meta 上传桥接运行时配置会写到：
 
 ### 环境准备
 
-建议在项目根目录执行：
+建议直接在 `Agent/` 所在机器安装：
 
 ```bash
 pip install -r Agent/requirements.txt
 ```
 
-如果需要 Meta 只读监控，请准备 `.env`：
+然后在 `Agent/` 目录下准备 `.env`：
 
 ```env
 META_ACCESS_TOKEN=你的token
+GEMINI_API_KEY=你的key
 META_ADS_READ_ONLY=true
 ```
 
@@ -306,12 +312,12 @@ META_ADS_READ_ONLY=true
 
 - [Agent/.env.example](/Users/yf/Downloads/wok/video_v1/Agent/.env.example)
 
-环境加载优先级：
+环境加载规则：
 
-1. `Agent/.env`
-2. 项目根目录 `.env`
+1. 只读取 `Agent/.env`
+2. 如果进程外部已经设置同名环境变量，则优先使用外部环境变量
 
-也就是说，同事接手时优先把配置写进 `Agent/.env`，这样不会污染旧项目环境。
+也就是说，同事接手时只要维护 `Agent/.env` 即可，不会污染旧项目环境，也不会偷偷依赖根目录配置。
 
 如果没有 token，素材加载监控和健康检查仍可运行，但 Meta 只读扫描会返回阻塞提示。
 
@@ -340,7 +346,7 @@ streamlit run Agent/app.py
 - 保存 TTS 配置并生成运行时覆盖文件
 - 查看字幕是否已烧录进最终视频
 - 手动控制是否上传到 Meta
-- 直接把成片接到指定广告组并创建 `PAUSED` 广告
+- 真实上传成片到 Meta 素材库
 - 刷新生成状态
 - 执行默认生成任务
 - 查看最近成片、日志和概念报告
@@ -494,13 +500,13 @@ python Agent/scripts/run_generation_bridge.py --execute
 
 ### 交接注意事项
 
-#### 1. `facebook.py` 不建议继续直接使用
+#### 1. 不要再依赖根目录旧脚本
 
 原因：
 
-- 里面曾存在硬编码 token
-- 直接运行容易触发线上写操作
-- 已经不符合现在“默认只读”的交接要求
+- `Agent` 已经去掉了对根目录 `.env` 和 `facebook.py` 的回退
+- 直接运行旧脚本容易触发线上写操作
+- 已经不符合现在“默认只读、单目录交付”的要求
 
 #### 2. Token 统一走 `.env`
 
