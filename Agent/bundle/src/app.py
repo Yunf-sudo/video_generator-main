@@ -496,14 +496,20 @@ def set_active_step(step: str, rerun: bool = False) -> None:
     if normalized not in STEP_OPTIONS:
         return
     st.session_state["active_step"] = normalized
-    st.session_state["active_step_nav"] = normalized
-    st.session_state["active_step_nav_synced"] = normalized
+    if st.session_state.get("active_step_nav") == normalized:
+        st.session_state["active_step_nav_synced"] = normalized
+    else:
+        st.session_state["active_step_nav_synced"] = ""
     if rerun:
         st.rerun()
 
 
 def _handle_active_step_nav_change() -> None:
-    set_active_step(str(st.session_state.get("active_step_nav") or "").strip())
+    selected = str(st.session_state.get("active_step_nav") or "").strip()
+    if selected not in STEP_OPTIONS:
+        return
+    st.session_state["active_step"] = selected
+    st.session_state["active_step_nav_synced"] = selected
 
 def extract_youtube_video_id(value: str) -> str:
     if not value:
@@ -2424,9 +2430,10 @@ def main() -> None:
         current_run_paths()
     render_header()
     if st.session_state.get("active_step") not in STEP_OPTIONS:
-        set_active_step(infer_active_step())
+        st.session_state["active_step"] = infer_active_step()
     if st.session_state.get("active_step_nav_synced") != st.session_state.get("active_step"):
-        set_active_step(str(st.session_state.get("active_step") or "").strip())
+        st.session_state["active_step_nav"] = str(st.session_state.get("active_step") or "").strip()
+        st.session_state["active_step_nav_synced"] = st.session_state["active_step_nav"]
     active_step = st.radio(
         "工作步骤",
         STEP_OPTIONS,
