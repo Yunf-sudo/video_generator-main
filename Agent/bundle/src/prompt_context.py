@@ -16,8 +16,9 @@ def build_prompt_context(meta: dict | None = None) -> dict[str, str]:
     use_reference_images = bool(meta.get("use_product_reference_images", True))
     if use_reference_images:
         reference_image_instruction = (
-            "如果提供了官方产品参考图、产品参考签名或产品结构信息，请把它们当作跨场景保持一致的视觉参考，"
-            "但要结合当前镜头自然转化，而不是生硬照抄。不要在广告里复现白底棚拍背景，也不要插入产品页 packshot。"
+            "如果提供了官方产品参考图、多视角拼版参考图、产品参考签名或产品结构信息，请把它们当作跨场景保持一致的视觉参考，"
+            "优先吸收已经被参考图证实的产品身份特征与比例关系，但要结合当前镜头自然转化，而不是生硬照抄或机械枚举。"
+            "不要脑补参考图里看不见的隐藏结构，也不要在广告里复现拼版标签、分隔线、白底棚拍背景或产品页 packshot。"
         )
     else:
         reference_image_instruction = (

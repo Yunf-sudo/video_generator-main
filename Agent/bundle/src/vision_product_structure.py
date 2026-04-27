@@ -28,6 +28,7 @@ VISION_MODEL = os.getenv(
     "VISION_MODEL",
     os.getenv("META_MODEL", str(RUNTIME_TUNABLES["model_config"].get("vision_model") or DEFAULT_TEXT_MODEL)),
 )
+VISION_PROMPT_VERSION = "2026-04-27-reference-sheet-v1"
 
 VISION_SCHEMA = {
     "type": "object",
@@ -76,7 +77,7 @@ def _load_json_object(raw_text: str) -> dict:
 
 
 def _reference_cache_key(reference_image_paths: list[str], model: str = VISION_MODEL) -> str:
-    parts: list[str] = [f"model={model}"]
+    parts: list[str] = [f"model={model}", f"prompt_version={VISION_PROMPT_VERSION}"]
     for raw_path in reference_image_paths:
         path = Path(raw_path).resolve()
         stat = path.stat()
@@ -131,10 +132,13 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
     user_parts = [
         {
             "text": (
-                "Analyze the wheelchair shown in these white-background product photos. "
-                "Identify only visible physical structure and appearance. "
+                "Analyze the wheelchair shown in these product reference images. "
+                "The inputs may be white-background photos, multi-view reference sheets, or close-up collages. "
+                "Ignore panel labels, Chinese text, divider lines, margins, and collage layout. "
+                "Identify only visible physical structure and appearance that belong to the actual wheelchair. "
                 "For advertising generation, treat any rear/lower removable battery pack or exposed battery cable as an omitted accessory, not a required visible feature. "
                 "Do not describe folded, semi-folded, collapsed, storage, or folding/unfolding configurations as required output. "
+                "Do not infer hidden geometry from unseen angles, and do not treat the sheet layout itself as a product feature. "
                 "Return one JSON object only with these keys exactly: "
                 "summary, frame, seat_and_backrest, armrests, controller, side_housing, rear_wheels, front_casters, footrests, rear_details, colors_and_materials, must_keep, must_avoid."
             )
@@ -151,6 +155,7 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
                 "content": (
                     "You are a product visual structure analyst. "
                     "Summarize exact visible geometry and appearance only. "
+                    "The reference may include multi-view montage images with labels and close-up panels; ignore those editorial elements. "
                     "Exclude rear/lower removable battery packs, exposed battery cables, and folding-state demonstrations from required advertising visuals."
                 ),
             },
@@ -172,6 +177,7 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
         {
             "cache_key": cache_key,
             "model": VISION_MODEL,
+            "prompt_version": VISION_PROMPT_VERSION,
             "reference_image_paths": resolved_paths,
             "structure": structure,
         }

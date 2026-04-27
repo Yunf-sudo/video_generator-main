@@ -285,6 +285,19 @@ def _set_query_run_id(run_id: str) -> None:
             pass
 
 
+def _clear_query_run_id() -> None:
+    try:
+        if "run_id" in st.query_params:
+            del st.query_params["run_id"]
+            return
+    except Exception:
+        pass
+    try:
+        st.experimental_set_query_params()
+    except Exception:
+        pass
+
+
 def _read_run_json(run_id: str, filename: str, default=None):
     path = runs_root() / run_id / "meta" / filename
     if not path.exists():
@@ -317,8 +330,8 @@ def _infer_final_video_result_from_exports(run_id: str, tts_result: dict | None 
         "audio_path": audio_path,
         "subtitles_burned": False,
         "scene_duration_map": {},
-        "transition_name": "",
-        "transition_duration": 0.0,
+        "transition_name": "fade",
+        "transition_duration": 0.25,
     }
 
 
@@ -346,6 +359,24 @@ def latest_recoverable_run_id(limit: int = 50) -> str:
     return ""
 
 
+def _read_brief_project_name(path: Path) -> str:
+    brief_path = path / "meta" / "brief.json"
+    if not brief_path.exists():
+        return ""
+    try:
+        payload = json.loads(brief_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    if str(payload.get("project_name") or "").strip():
+        return str(payload.get("project_name") or "").strip()
+    inputs = payload.get("inputs")
+    if isinstance(inputs, dict):
+        return str(inputs.get("project_name") or "").strip()
+    return ""
+
+
 def _run_label(path: Path) -> str:
     meta_dir = path / "meta"
     marks = []
@@ -362,6 +393,9 @@ def _run_label(path: Path) -> str:
     except Exception:
         updated = "未知时间"
     status = " / ".join(marks) if marks else "空记录"
+    project_name = _read_brief_project_name(path)
+    if project_name:
+        return f"{project_name} | {updated} | {status} | {path.name}"
     return f"{path.name} | {updated} | {status}"
 
 def load_run_state(run_id: str) -> bool:
@@ -379,9 +413,12 @@ def load_run_state(run_id: str) -> bool:
     brief = _coerce_dict(_read_run_json(run_id, "brief.json", {}))
     brief_inputs = brief.get("inputs")
     if isinstance(brief_inputs, dict):
-        st.session_state["inputs"] = {**DEFAULT_INPUTS, **brief_inputs}
+        resolved_inputs = {**DEFAULT_INPUTS, **brief_inputs}
     else:
-        st.session_state["inputs"] = copy.deepcopy(DEFAULT_INPUTS)
+        resolved_inputs = copy.deepcopy(DEFAULT_INPUTS)
+    if not str(resolved_inputs.get("project_name") or "").strip():
+        resolved_inputs["project_name"] = str(brief.get("project_name") or "").strip() or run_id
+    st.session_state["inputs"] = resolved_inputs
     st.session_state["reference_style"] = st.session_state["inputs"].get("reference_style", "")
     st.session_state["reference_image_paths"] = _coerce_list(brief.get("reference_image_paths"))
 
@@ -413,13 +450,13 @@ def current_run_paths():
     if run_id:
         _set_query_run_id(run_id)
         return activate_run(run_id)
-    created = start_new_run(prefix="ad")
+    created = start_new_run(prefix="ad", project_name=st.session_state.get("inputs", {}).get("project_name"))
     st.session_state["run_id"] = created.run_id
     _set_query_run_id(created.run_id)
     return created
 
-def create_new_run() -> str:
-    created = start_new_run(prefix="ad")
+def create_new_run(project_name: str) -> str:
+    created = start_new_run(prefix="ad", project_name=project_name)
     st.session_state["run_id"] = created.run_id
     _set_query_run_id(created.run_id)
     return created.run_id
@@ -472,6 +509,7 @@ def init_state() -> None:
         "last_agent_run_result": None,
         "last_dry_run_result": None,
         "archive_feature_summary": None,
+        "suppress_auto_restore_once": False,
     }
 
     for key, value in defaults.items():
@@ -485,7 +523,9 @@ def init_state() -> None:
     query_run_id = _get_query_run_id()
     if query_run_id and not st.session_state.get("run_id"):
         load_run_state(query_run_id)
-    if not st.session_state.get("run_id"):
+    if not st.session_state.get("run_id") and st.session_state.get("suppress_auto_restore_once"):
+        st.session_state["suppress_auto_restore_once"] = False
+    elif not st.session_state.get("run_id"):
         latest_run_id = latest_recoverable_run_id()
         if latest_run_id:
             load_run_state(latest_run_id)
@@ -606,17 +646,25 @@ def _set_video_previous_reference_disabled(scene_number: int, disabled: bool) ->
 
 
 def _storyboard_neighbor_reference_paths(scene_number: int) -> list[str]:
-    refs: list[str] = []
-    frame_map = {
-        _safe_int(frame.get("scene_number")): str(frame.get("saved_path") or "").strip()
-        for frame in ordered_storyboard()
-        if isinstance(frame, dict)
-    }
-    for candidate in (scene_number - 1, scene_number + 1):
-        path = frame_map.get(candidate, "")
-        if path:
-            refs.append(path)
-    return refs
+    valid_previous_paths: list[str] = []
+    for frame in ordered_storyboard():
+        if not isinstance(frame, dict):
+            continue
+        current_scene_number = _safe_int(frame.get("scene_number"), default=-1)
+        if current_scene_number <= 0 or current_scene_number >= scene_number:
+            continue
+        generation_mode = str(frame.get("image_generation_mode") or "").strip()
+        saved_path = str(frame.get("saved_path") or "").strip()
+        if generation_mode not in {"remote", "remote_retry_succeeded", "remote_with_risk"} or not saved_path:
+            continue
+        valid_previous_paths.append(saved_path)
+    if not valid_previous_paths:
+        return []
+    anchor = valid_previous_paths[0]
+    latest = valid_previous_paths[-1]
+    if anchor == latest:
+        return [anchor]
+    return [anchor, latest]
 
 
 def _previous_video_reference_frame(scene_number: int) -> str | None:
@@ -820,6 +868,13 @@ def infer_active_step() -> str:
         return "配音字幕"
     if ordered_video_results():
         return "视频片段"
+    storyboard_frames = ordered_storyboard()
+    if any(
+        str(frame.get("image_generation_mode") or "").strip() in {"failed", "remote_with_risk"}
+        for frame in storyboard_frames
+        if isinstance(frame, dict)
+    ):
+        return "分镜图"
     if ordered_storyboard():
         return "视频片段"
     if scene_list(st.session_state.get("script")):
@@ -933,7 +988,7 @@ def generate_script_step(
     reset_downstream("script")
 
 
-def generate_storyboard_step() -> None:
+def generate_storyboard_step() -> list[dict]:
     current_run_paths()
     storyboard_overrides = _collect_storyboard_prompt_overrides(st.session_state.get("script"))
     st.session_state["inputs"]["storyboard_prompt_overrides"] = storyboard_overrides
@@ -945,9 +1000,20 @@ def generate_storyboard_step() -> None:
         prompt_overrides=storyboard_overrides,
     )
     st.session_state["storyboard"] = storyboard
-    set_active_step("视频片段")
+    failed_count = sum(
+        1
+        for frame in storyboard
+        if isinstance(frame, dict) and str(frame.get("image_generation_mode") or "").strip() == "failed"
+    )
+    risk_count = sum(
+        1
+        for frame in storyboard
+        if isinstance(frame, dict) and str(frame.get("image_generation_mode") or "").strip() == "remote_with_risk"
+    )
+    set_active_step("分镜图" if (failed_count or risk_count) else "视频片段")
     persist_run_json("storyboard.json", storyboard)
     reset_downstream("storyboard")
+    return storyboard
 
 
 def submit_all_missing_clips() -> None:
@@ -1128,8 +1194,8 @@ def export_formal_video_step() -> None:
             output_dir=active_run.exports,
             filename=output_name,
             scene_duration_map=None,
-            transition_name=None,
-            transition_duration=0.0,
+            transition_name=st.session_state.get("inputs", {}).get("transition_name", "fade"),
+            transition_duration=float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.25) or 0.0),
             aspect_ratio=st.session_state.get("inputs", {}).get("video_orientation", "9:16"),
             preserve_clip_audio=True,
         )
@@ -1145,7 +1211,7 @@ def export_formal_video_step() -> None:
             filename=output_name,
             scene_duration_map=scene_duration_map or None,
             transition_name=st.session_state.get("inputs", {}).get("transition_name", "fade"),
-            transition_duration=float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.35) or 0.0),
+            transition_duration=float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.25) or 0.0),
             aspect_ratio=st.session_state.get("inputs", {}).get("video_orientation", "9:16"),
         )
     set_active_step("导出成片")
@@ -1194,12 +1260,15 @@ def render_sidebar() -> None:
                 else:
                     st.error("这个 Run 没有可恢复的脚本、分镜、片段或成片数据。")
             if new_col.button("新建", use_container_width=True):
-                create_new_run()
+                st.session_state["run_id"] = None
+                st.session_state["suppress_auto_restore_once"] = True
+                _clear_query_run_id()
                 st.session_state["inputs"] = copy.deepcopy(DEFAULT_INPUTS)
+                st.session_state["reference_style"] = ""
+                st.session_state["competitor_video_id"] = ""
                 st.session_state["reference_image_paths"] = []
                 set_active_step("产品简报")
                 reset_generated_state()
-                persist_current_brief()
                 st.rerun()
         else:
             st.caption("还没有可恢复的历史 Run。")
@@ -1207,6 +1276,9 @@ def render_sidebar() -> None:
         run_id = st.session_state.get("run_id")
         if run_id:
             active_run = run_paths(run_id)
+            current_project_name = str(st.session_state.get("inputs", {}).get("project_name") or "").strip()
+            if current_project_name:
+                st.caption(f"当前项目：{current_project_name}")
             st.caption(f"当前 Run：{run_id}")
             st.caption(f"输出目录：{active_run.root}")
 
@@ -1279,6 +1351,13 @@ def render_brief_tab() -> None:
 
     input_left, input_right = st.columns(2)
     with input_left:
+        project_name = st.text_input(
+            "可编辑 | 项目名称",
+            value=str(st.session_state["inputs"].get("project_name") or ""),
+            key=_brief_widget_key("project_name"),
+            placeholder="例如 AnyWell 自由出行 A 案",
+            help="新建项目时必须填写，用于工作台展示和 Run 命名。",
+        )
         product_name = st.text_input(
             "可编辑 | 产品名称",
             value=st.session_state["inputs"]["product_name"],
@@ -1486,8 +1565,13 @@ def render_brief_tab() -> None:
     submitted = st.button("保存简报", use_container_width=True, key=_brief_widget_key("save"))
 
     if submitted:
-        run_id = create_new_run()
+        resolved_project_name = str(project_name or "").strip()
+        if not resolved_project_name:
+            st.error("请先填写项目名称，再保存简报。")
+            return
+        run_id = create_new_run(resolved_project_name)
         st.session_state["inputs"] = {
+            "project_name": resolved_project_name,
             "product_name": product_name,
             "product_category": product_category,
             "campaign_goal": campaign_goal,
@@ -1511,6 +1595,8 @@ def render_brief_tab() -> None:
             "prompt_error_examples": error_selection,
             "language": language,
             "video_orientation": video_orientation,
+            "transition_name": st.session_state.get("inputs", {}).get("transition_name", "fade"),
+            "transition_duration_seconds": float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.25) or 0.25),
             "desired_scene_count": desired_scene_count,
             "preferred_runtime_seconds": preferred_runtime_seconds,
             "reference_style": st.session_state.get("reference_style", ""),
@@ -1526,11 +1612,12 @@ def render_brief_tab() -> None:
             "brief.json",
             {
                 "run_id": run_id,
+                "project_name": resolved_project_name,
                 "inputs": st.session_state["inputs"],
                 "reference_image_paths": st.session_state["reference_image_paths"],
             },
         )
-        st.success(f"产品简报已保存，新建 Run：{run_id}")
+        st.success(f"产品简报已保存，项目「{resolved_project_name}」已创建。Run：{run_id}")
 
     if st.session_state.get("reference_image_paths"):
         st.caption("当前参考图")
@@ -1651,8 +1738,23 @@ def render_storyboard_tab() -> None:
     if st.button("生成全部分镜图", use_container_width=True):
         with st.spinner("正在生成分镜图..."):
             try:
-                generate_storyboard_step()
-                st.success("分镜图已生成。")
+                storyboard = generate_storyboard_step()
+                failed_count = sum(
+                    1
+                    for frame in storyboard
+                    if isinstance(frame, dict) and str(frame.get("image_generation_mode") or "").strip() == "failed"
+                )
+                risk_count = sum(
+                    1
+                    for frame in storyboard
+                    if isinstance(frame, dict) and str(frame.get("image_generation_mode") or "").strip() == "remote_with_risk"
+                )
+                if failed_count:
+                    st.warning(f"有 {failed_count} 个场景远端生成失败，没有拿到可展示图片。")
+                elif risk_count:
+                    st.warning(f"有 {risk_count} 个场景已生成，但带有质检风险。图片会保留显示，请人工确认后决定是否重生成。")
+                else:
+                    st.success("分镜图已生成。")
             except Exception as exc:
                 _display_generation_error("分镜图生成失败", exc)
 
@@ -1688,12 +1790,32 @@ def render_storyboard_tab() -> None:
             with left:
                 if frame.get("saved_path"):
                     st.image(frame["saved_path"], use_container_width=True)
+                elif frame.get("image_generation_mode") == "failed":
+                    st.error("这个场景的分镜图未通过质检或远端生成失败，没有再用本地插画占位图顶替。")
                 else:
                     st.info("这个场景还没有分镜图。")
             with right:
                 st.markdown(f"**场景 {scene_number} | 计划 {request['duration_seconds']}s**")
                 st.write(request["scene_description"])
                 st.caption(request["key_message"])
+                if frame.get("image_generation_mode") == "remote_retry_succeeded":
+                    st.caption(f"该分镜已自动重试 {frame.get('image_validation_attempts', 1)} 次，并移除了画面内文字。")
+                elif frame.get("image_generation_mode") == "remote_with_risk":
+                    st.warning("该分镜已生成并保留，但质检提示有风险。请先人工查看，再决定是否重生成。")
+                    warnings = frame.get("image_generation_warnings") or []
+                    for warning_text in warnings[:4]:
+                        if str(warning_text).strip():
+                            st.caption(str(warning_text).strip())
+                elif frame.get("image_generation_mode") == "failed":
+                    st.warning("该分镜远端生成失败，当前没有可展示图片。")
+                    if frame.get("image_generation_error"):
+                        st.caption(str(frame.get("image_generation_error")))
+                image_validation = frame.get("image_validation") or {}
+                if isinstance(image_validation, dict) and image_validation.get("status") == "failed":
+                    st.caption(f"文字风险：{str(image_validation.get('reason') or '').strip()}")
+                visual_validation = frame.get("visual_validation") or {}
+                if isinstance(visual_validation, dict) and visual_validation.get("status") == "failed":
+                    st.caption(f"视觉风险：{str(visual_validation.get('reason') or '').strip()}")
                 with st.expander("查看本场景当前图片提示词", expanded=False):
                     st.code(
                         str(request.get("image_prompt") or frame.get("image_prompt") or ""),

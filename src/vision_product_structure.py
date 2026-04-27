@@ -28,7 +28,7 @@ VISION_MODEL = os.getenv(
     "VISION_MODEL",
     os.getenv("META_MODEL", str(RUNTIME_TUNABLES["model_config"].get("vision_model") or DEFAULT_TEXT_MODEL)),
 )
-VISION_PROMPT_VERSION = "2026-04-26-visible-evidence-v2"
+VISION_PROMPT_VERSION = "2026-04-27-reference-sheet-v1"
 
 VISION_SCHEMA = {
     "type": "object",
@@ -132,7 +132,9 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
     user_parts = [
         {
             "text": (
-                "请分析这些白底产品图里的电动轮椅，只根据真正看得见的视觉证据总结产品外观。"
+                "请分析这些产品参考图里的电动轮椅，只根据真正看得见的视觉证据总结产品外观。"
+                "输入可能是白底产品图、多视角拼版图，或局部细节拼贴。"
+                "请忽略拼版里的中文标题、说明字、分隔线、留白边框和版式本身，不要把这些编辑元素当成产品特征。"
                 "不要脑补隐藏结构、不可见背面细节、内部结构或广告里不一定该露出的部位。"
                 "如果某个特征只在个别角度短暂可见，也只能按“可见时应保持一致”的弱事实来描述，不能升级成夸张的强要求。"
                 "尤其不要把贴近靠背上角的短小一体式后把手，误写成高耸的护理推把、长竖杆或额外杆件。"
@@ -155,6 +157,7 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
                     "你是一名产品视觉结构分析师。"
                     "只总结参考图中能被视觉证据确认的几何、材质和比例关系。"
                     "优先提炼能帮助广告生成保持产品身份的稳定特征。"
+                    "如果参考图是多视角拼版或细节拼贴，请忽略标题、标签、分隔线和拼版布局。"
                     "不要夸张后部结构，不要凭空发明隐藏零件。"
                     "后下方可拆电池、外露电池线和折叠演示不属于广告里必须露出的结构特征。"
                 ),

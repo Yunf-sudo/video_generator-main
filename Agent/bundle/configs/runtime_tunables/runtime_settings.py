@@ -16,7 +16,7 @@ MODEL_CONFIG = {
     # 脚本生成模型：广告脚本 JSON 结构生成。
     "script_model": "gemini-2.5-flash",
     # 图片生成模型：用于分镜图/关键帧生成。
-    "image_model": "gemini-2.5-flash-image",
+    "image_model": "openai/gpt-5.4-image-2",
     # 视频生成模型：用于图生视频。
     "video_model": "veo-3.1-generate-preview",
     # TTS 模型：用于配音生成展示。
@@ -39,6 +39,14 @@ APP_RUNTIME_FLAGS = {
     # True：直接保留片段音频，不再强制生成单独 TTS。
     # False：使用项目自己的配音和字幕流程。
     "use_generated_video_audio": True,
+    # 分镜图生成后，默认不做文字/水印审核，直接展示结果。
+    "storyboard_text_guardrail_enabled": False,
+    # 审核关闭时不需要自动重试。
+    "storyboard_text_guardrail_retry_count": 1,
+    # 分镜图生成后，默认不做“照片级真实感 / 同一人物 / 同一轮椅”审核，直接展示结果。
+    "storyboard_visual_guardrail_enabled": False,
+    # 正常工作流里不要用本地插画占位图冒充正式分镜。
+    "storyboard_allow_placeholder_fallback": False,
 }
 
 

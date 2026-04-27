@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -88,8 +89,18 @@ def activate_run(run_id: str) -> RunPaths:
     return _build_run_paths(run_id)
 
 
-def start_new_run(prefix: str = "run") -> RunPaths:
-    run_id = f"{prefix}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+def _slugify_run_prefix(value: str, default: str = "run") -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return default
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = text.strip("-")
+    return text[:40] or default
+
+
+def start_new_run(prefix: str = "run", project_name: str | None = None) -> RunPaths:
+    resolved_prefix = _slugify_run_prefix(project_name or prefix, default=prefix)
+    run_id = f"{resolved_prefix}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
     return activate_run(run_id)
 
 
