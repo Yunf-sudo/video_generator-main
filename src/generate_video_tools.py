@@ -816,21 +816,30 @@ def _build_video_prompt(
         if isinstance(resolved_product_visual_structure, dict):
             compact_structure = {
                 "summary": resolved_product_visual_structure.get("summary", ""),
-                "must_keep": _compact_value_list(resolved_product_visual_structure.get("must_keep", []), 6),
+                "frame": _compact_value_list(resolved_product_visual_structure.get("frame", []), 4),
+                "seat_and_backrest": _compact_value_list(resolved_product_visual_structure.get("seat_and_backrest", []), 4),
+                "armrests": _compact_value_list(resolved_product_visual_structure.get("armrests", []), 3),
+                "controller": _compact_value_list(resolved_product_visual_structure.get("controller", []), 3),
+                "rear_wheels": _compact_value_list(resolved_product_visual_structure.get("rear_wheels", []), 4),
+                "front_casters": _compact_value_list(resolved_product_visual_structure.get("front_casters", []), 4),
+                "footrests": _compact_value_list(resolved_product_visual_structure.get("footrests", []), 3),
+                "rear_details": _compact_value_list(resolved_product_visual_structure.get("rear_details", []), 3),
+                "must_keep": _compact_value_list(resolved_product_visual_structure.get("must_keep", []), 8),
                 "colors_and_materials": _compact_value_list(
                     resolved_product_visual_structure.get("colors_and_materials", []),
-                    4,
+                    5,
                 ),
+                "must_avoid": _compact_value_list(resolved_product_visual_structure.get("must_avoid", []), 6),
             }
         else:
-            compact_structure = {"summary": str(resolved_product_visual_structure or "")[:500]}
+            compact_structure = {"summary": str(resolved_product_visual_structure or "")[:900]}
 
         compact_signature_parts = [
             part.strip()
             for part in str(resolved_product_reference_signature or "").splitlines()
             if part.strip()
         ]
-        resolved_product_reference_signature = "\n".join(compact_signature_parts[:8])
+        resolved_product_reference_signature = "\n".join(compact_signature_parts[:12])
         resolved_product_visual_structure = compact_structure
 
     prompt_composition = compose_generation_prompt(

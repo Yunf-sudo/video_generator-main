@@ -44,7 +44,7 @@ def _resolve_scene_generation_context(scene_info: dict) -> dict:
         product_visual_structure = get_product_visual_structure_json() if use_product_reference_images else ""
     continuity_rider_anchor = (
         meta.get("continuity_rider_anchor")
-        or "Use a coherent rider identity across connected scenes unless the user explicitly asks for a change."
+        or "相连场景默认保持同一位成年人、同一台轮椅和同一套服装，除非需求明确要求变化。"
     )
     return {
         "main_theme": main_theme,

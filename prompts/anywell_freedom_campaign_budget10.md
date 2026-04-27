@@ -1,40 +1,40 @@
 # AnyWell Budget-10 Guardrails
 
-Use this brief as the hard boundary for the low-budget AnyWell test run.
+把这份 brief 当作 AnyWell 低预算测试流程的硬边界。
 
-Creative goal:
-- Create 3 short vertical ads for Western markets.
-- Keep them newly generated, anonymous, and emotionally restrained.
-- Take only the feeling from `jean.mp4`: a spouse watching a loved one regain quiet freedom near home.
+创意目标：
+- 面向西方市场制作 3 支短竖版广告。
+- 素材必须是新生成、匿名且情绪克制的。
+- 只借用 `jean.mp4` 的情绪内核：伴侣看着爱人重新在家附近安静地走向户外。
 
-Do not recreate from the source clip:
-- No real customer likeness.
-- No exact blue house exterior.
-- No exact white porch railing.
-- No red porch chair.
-- No overhead porch security-camera angle.
-- No unfinished raw wood ramp.
-- No exact leafless woods layout or path geometry.
-- No quoting or paraphrasing the original customer comment.
-- No testimonial framing or implied endorsement.
+不要复刻源视频：
+- 不要复刻任何真实客户形象。
+- 不要复刻蓝色房屋外立面。
+- 不要复刻白色门廊栏杆。
+- 不要复刻红色门廊椅子。
+- 不要复刻门廊俯拍监控视角。
+- 不要复刻未完工原木坡道。
+- 不要复刻光秃树林的具体布局或路径几何。
+- 不要引用或改写原始客户评论。
+- 不要做成 testimonial 式表达，也不要暗示品牌背书。
 
-What to keep:
-- 9:16 portrait video.
-- A generic North American home-to-outdoor route.
-- A white-haired older man and adult spouse with soft non-identifiable faces.
-- Calm, realistic motion and respectful companionship.
-- The real AnyWell wheelchair identity from the white-background product photos.
+需要保留：
+- 9:16 竖版视频。
+- 通用化的北美家庭到户外路线。
+- 一位白发老年男性与成年配偶，面部柔和、不可识别。
+- 平静、真实的移动表现和有分寸的陪伴关系。
+- 与白底参考图一致的 AnyWell 真实轮椅身份。
 
-Product rules:
-- Keep the chair only in normal open riding position.
-- Two tall black rear caregiver push handles must remain visible above the backrest in every shot.
-- Use front-side or joystick-side angles only.
-- When the rider self-operates, his right hand must be visibly on the right-side joystick.
-- Never show a rear or lower battery box, exposed cable, folded chair, semi-folded chair, or rear-facing view.
+产品规则：
+- 轮椅只能保持正常展开骑乘状态。
+- 如果靠背上角在镜头里可见，应保持参考图那种贴近靠背的短小一体式后把手；不要夸张成长护理推把或高竖杆。
+- 只使用前侧或摇杆侧角度。
+- 当骑乘者自驾时，右手必须清楚放在右侧摇杆上。
+- 绝不要展示后方或下方电池盒、外露线缆、折叠态、半折叠态，或后视角。
 
-Copy rules:
-- English-first.
-- Calm brand-film tone.
-- No medical claims.
-- No fake social proof.
-- No direct testimonial language.
+文案规则：
+- 面向欧美市场时可采用英文文案，但提示词统一改为中文维护。
+- 保持平静的品牌短片语气。
+- 不要医疗功效宣称。
+- 不要伪造社会证明。
+- 不要出现直接 testimonial 语言。

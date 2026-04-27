@@ -1,43 +1,43 @@
-# AnyWell Emotional Campaign Guardrails
+# AnyWell 情感广告 Guardrails
 
-Use this brief as a hard creative and compliance boundary for the AnyWell campaign runner.
+把这份 brief 当作 AnyWell 活动主流程的硬性创意与合规边界。
 
-Creative north star:
-- Beyond Mobility. We Defend Dignity.
-- Freedom, companionship, and returning to the outdoors.
-- Mature North American and Western European brand-film tone.
-- Realistic cinematic framing, never sensational or pity-driven.
+创意北极星：
+- 超越移动，我们守护尊严。
+- 核心情绪是自由、陪伴，以及重新回到户外。
+- 品牌语气参考成熟的北美与西欧品牌短片。
+- 镜头应具备真实电影感，不能煽情、猎奇或卖惨。
 
-What to avoid:
-- Do not use, quote, or recreate any real customer testimonial.
-- Do not mention Jean Leonard, her husband, or any other identifiable family.
-- Do not reproduce an unfinished ramp build, a specific home layout, or any customer-uploaded woods footage.
-- Do not imply endorsement, authorization, or testimonial permission.
-- Do not create a fake review, fake comment screenshot, or fake social proof.
-- Do not create hyper-detailed faces that feel like a specific real person.
-- Do not turn the ad into a medical-claim commercial.
+必须避免：
+- 不要使用、引用或复刻任何真实客户证言。
+- 不要提及 Jean Leonard、她的丈夫，或任何可识别家庭成员。
+- 不要复现未完工坡道、具体住宅格局，或任何客户上传的树林素材。
+- 不要暗示品牌授权、背书或 testimonial 许可。
+- 不要生成虚假评论、虚假截图或伪造社会证明。
+- 不要把人物面部做得过于细致，以至于像真实特定人物。
+- 不要把广告做成医疗功效宣传片。
 
-Visual direction:
-- 9:16 vertical.
-- Anonymous clearly obese, heavyset, plus-size older adults with dignity, natural posture, and everyday Western styling.
-- The rider should not look merely average-sized or slightly stocky. Show a visibly fuller seated body: broad torso and shoulders, rounded belly under normal clothing, thicker arms and legs, and a seated posture that visibly fills the wheelchair seat.
-- Preserve the same clearly obese senior rider across connected shots; do not slim the rider down, age-swap, or turn the body type into a caricature.
-- Companion presence should feel warm and respectful, never infantilizing.
-- Keep the wheelchair matched to the real white-background product photos across each concept.
-- Present the wheelchair only in its normal open riding position.
-- Mandatory product geometry: the wheelchair has two tall black rear caregiver push handles. They are left/right vertical tubes rising clearly above the backrest, each ending in a short rearward-curved black rubber grip. The two handles must be visible as distinct handle horns above the backrest in every storyboard and video shot.
-- Do not show any rear/lower external battery pack, dangling battery cable, removable battery pack, folded chair, semi-folded chair, compact storage form, or folding/unfolding demonstration.
-- Do not use rear-facing or rear three-quarter product views. Use safe side, side-profile, or front-side angles where the two tall upper push handles are still visible above the backrest, while the back panel and lower rear quadrant stay hidden, cropped out, or fully occluded.
-- Do not place the camera behind the rider. Each generated ad shot should let the viewer see the rider's front torso or soft facial profile, plus the right forearm and right hand on the right-side joystick when the chair is self-operated.
-- Do not make the chair backrest, back panel, or rear red detail the hero feature. Favor front, front three-quarter, and joystick-side front-profile angles.
-- Never render a rectangular box mounted behind or below the seat; use front, front three-quarter, or joystick-side front-profile framing instead.
-- When the chair is moving under rider control, the rider's right hand must visibly rest on or gently hold the right-side joystick controller.
-- If the rider's right hand is not on the joystick while the chair moves, an adult must be visibly pushing from the handles, with both the adult's hands and the two tall rear push handles clearly readable.
-- White-background product photos are product identity references only. Never show a white studio background, packshot, cutaway, or product-photo flash frame inside the ad.
-- Avoid environmental text overlays; the product's own visible design details may remain if they are part of the real reference photos.
+视觉方向：
+- 画幅固定为 9:16 竖版。
+- 角色应为匿名、明显肥胖 / heavyset / plus-size 的年长西方成年人，整体要有尊严、自然姿态和日常西式穿着。
+- 骑乘者不能只是普通体型或略微壮一点。要清楚表现更饱满的坐姿体型：宽厚躯干与肩背、衣服下自然的圆腹、更粗的四肢，以及明显占满座椅的坐姿。
+- 相连镜头里必须保持同一位明显肥胖长者；不要偷偷把人物变瘦、换年龄，或把体型做成 caricature。
+- 陪伴者的存在感要温暖、尊重，绝不能 infantilizing。
+- 每个 concept 里的轮椅都要尽量贴近白底实物参考图。
+- 轮椅只能以正常展开、可骑乘状态出现。
+- 产品几何要求必须忠于白底参考图：如果靠背上角在镜头里可见，应保持两侧贴近靠背上角的短小一体式后把手，左右各一、低调、紧凑、略向后弯。不要把它夸张成长护理推把、高竖杆或额外杆件。
+- 不要展示后下方外置电池包、悬挂电池线、可拆电池、折叠态、半折叠态、收纳态，或折叠 / 展开演示。
+- 不要使用纯后视角或后 3/4 产品视角。应采用安全的侧面、侧前或前侧角度：既能读清轮椅身份特征，又让背板和后下部区域保持隐藏、裁掉或完全遮挡。
+- 不要把镜头放在骑乘者身后。每个广告镜头都应让观众看到人物前胸或柔和侧脸，以及自驾时位于右侧摇杆上的右前臂与右手。
+- 不要把靠背、背板或后背红色细节当成主角。优先前方、前 3/4 和摇杆侧前视角。
+- 绝对不要在座椅后方或下方生成矩形盒体。优先使用前方、前 3/4 或摇杆侧前视角来规避。
+- 当轮椅由骑乘者控制移动时，人物右手必须清楚地搭在或轻握右侧摇杆控制器。
+- 如果轮椅移动时右手不在摇杆上，就必须清楚出现一位成年人在后方推行，而且画面里要能读出这位成年人的双手和两侧后把手。
+- 白底产品图只用于产品身份参考。广告成片中绝不能出现白底棚拍背景、packshot、cutaway 或产品图闪帧。
+- 尽量避免环境中的文字叠加；只有真实产品本身自带且参考图可见的设计细节可以保留。
 
-Copy direction:
-- English-first copy for North American and Western European markets.
-- Calm, restrained, brand-level phrasing.
-- Emotional truth over technical jargon.
-- Light CTA only.
+文案方向：
+- 面向北美和西欧市场时，可使用英文优先文案，但提示词内容本身统一用中文维护。
+- 语气要克制、平静、品牌化。
+- 以真实情绪为先，不要堆技术黑话。
+- CTA 保持轻量。

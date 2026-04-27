@@ -14,7 +14,7 @@ SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 PRODUCT_VISUAL_EXCLUSION_RULES = (
     "广告生成约束：轮椅只能以正常展开、可骑乘的状态出现。"
     "后背上部结构要紧凑、真实，并与实物比例一致。"
-    "不要凭空生成额外杆件、天线状结构、拐杖状延伸件、夸张推手或任何从靠背后方高高竖起的金属件。"
+    "如果靠背上角可见，请保持参考图里那种贴近靠背上角、短小、低调的一体式后把手；不要把它夸张成高耸护理推把、长竖杆、天线状结构、拐杖状延伸件或任何从靠背后方高高竖起的金属件。"
     "正式产品没有头枕或颈托。后背顶部如果可见，应是贴近靠背上角的短小结构，而不是高耸支撑件。"
     "不要出现后下方外挂电池、可拆电池、外露电池线、折叠状态、半折叠状态、收纳形态或折叠演示。"
     "如果参考图里存在后下方电池，请在广告画面里通过角度、人物遮挡、轮子、阴影或构图把它完全隐藏，同时保留其他产品身份特征。"
@@ -41,7 +41,6 @@ REAR_DETAIL_BLOCKLIST = (
     "red fabric strip",
     "red mesh",
     "backrest accent",
-    "rear caregiver",
     "long rod",
     "pole",
     "antenna-like",
@@ -122,7 +121,8 @@ def get_product_reference_signature() -> str:
         "它是一台正常展开状态的紧凑型电动轮椅，具有银灰色金属管架、黑色扶手、黑色坐垫和黑色靠背。"
         "右侧扶手前上方有摇杆控制器，扶手下方是深灰色流线型侧壳。"
         "后轮较大，带银色轮毂罩和红色中心点缀；前轮较小，为黑色万向轮；脚踏为黑色翻转式脚踏。"
-        "顶部后背轮廓紧凑，不要把它替换成医院轮椅、手动轮椅、厚辐条轮椅或完全不同的车架。"
+        "顶部后背轮廓紧凑；如果靠背上角露出，应保持两侧贴近靠背的短小一体式后把手，不要改成高耸护理推把。"
+        "不要把它替换成医院轮椅、手动轮椅、厚辐条轮椅或完全不同的车架。"
         "前进时，前万向轮必须符合物理方向：小轮中心在转轴后方，前叉从转轴向后包住小轮。"
         "轮椅侧面应保持干净，不要出现侧边 logo、文字、贴纸或虚构品牌件；如果能看到后背上半部布面，居中的白色 AnyWell 标识只能在该区域。"
         "必须保持与实拍参考图一致的比例、车架关系、轮组布局、扶手形状、控制器位置、侧壳和轮毂特征。"
@@ -142,10 +142,12 @@ def _strip_rear_detail_language(text: str) -> str:
         "red backrest accent": "small side-visible red hub accents",
         "red accent on backrest": "small side-visible red hub accent",
         "red upholstery accent": "small side-visible red hub accent",
-        "two tall black rear caregiver push handles": "exactly two short top-corner rear handles close to the backrest",
+        "two tall black rear caregiver push handles": "two short top-corner rear handles close to the backrest",
         "left/right vertical tubes rising clearly above the backrest": "two short handle stems at the upper backrest corners",
         "short rearward-curved rubber grips": "two short top-corner rear handles with compact grips",
         "two small handle horns above the backrest": "exactly two short top-corner rear handles",
+        "rear caregiver handles": "short top-corner rear handles close to the backrest",
+        "caregiver handles": "short top-corner rear handles close to the backrest",
     }
     cleaned = text
     for old, new in replacements.items():
@@ -173,7 +175,12 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
         return {}
 
     sanitized = dict(structure)
-    sanitized.pop("rear_details", None)
+    rear_details = [_strip_rear_detail_language(item) for item in _coerce_text_items(sanitized.get("rear_details"))]
+    sanitized["rear_details"] = [
+        item
+        for item in rear_details
+        if item and "battery" not in item.lower() and "cable" not in item.lower() and "fold" not in item.lower()
+    ]
 
     must_keep = []
     for item in _coerce_text_items(sanitized.get("must_keep")):
@@ -183,6 +190,19 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
             continue
         must_keep.append(_strip_rear_detail_language(text))
     sanitized["must_keep"] = must_keep
+
+    if not any("right-side joystick" in item.lower() or "右侧扶手前上方的摇杆控制器" in item for item in must_keep):
+        must_keep.append("右侧扶手前上方的摇杆控制器")
+    if not any("frame" in item.lower() or "管架" in item or "轮廓" in item for item in must_keep):
+        must_keep.append("银灰色金属管架与紧凑的整车轮廓")
+    if not any("rear wheel" in item.lower() or "后驱动轮" in item for item in must_keep):
+        must_keep.append("大号后驱动轮、银色轮毂罩与小红色中心点缀")
+    if not any("front caster" in item.lower() or "前万向轮" in item for item in must_keep):
+        must_keep.append("小号黑色前万向轮及正确前叉方向")
+    if not any("footrest" in item.lower() or "脚踏" in item for item in must_keep):
+        must_keep.append("黑色脚踏与黑色扶手")
+    if not any("top-corner rear handles" in item.lower() or "后把手" in item for item in must_keep):
+        must_keep.append("如果靠背上角可见，保持两侧贴近靠背的短小一体式后把手")
 
     for key, value in list(sanitized.items()):
         if isinstance(value, str):
@@ -201,6 +221,7 @@ def _sanitize_product_visual_structure_for_ads(structure: dict) -> dict:
         "后下方电池或外露线缆",
         "折叠、塌缩、收纳形态",
         "靠背后方额外长出杆件、天线状结构或夸张推手",
+        "把短小后把手夸张成长护理推把或高竖杆",
         "明显高于靠背的夸张后部把手结构",
         "前进时前叉朝前",
         "前轮中心跑到垂直转轴前方",

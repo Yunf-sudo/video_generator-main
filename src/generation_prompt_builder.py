@@ -46,17 +46,27 @@ def _normalized_lines(value: Any) -> list[str]:
         lines: list[str] = []
         summary = _clean_text(value.get("summary", ""))
         if summary:
-            lines.append(summary)
-        must_keep = value.get("must_keep")
-        if isinstance(must_keep, (list, tuple)):
-            visible = [_clean_text(item) for item in must_keep if _clean_text(item)]
-            if visible:
-                lines.append(f"可见特征：{', '.join(visible[:5])}")
-        materials = value.get("colors_and_materials")
-        if isinstance(materials, (list, tuple)):
-            palette = [_clean_text(item) for item in materials if _clean_text(item)]
-            if palette:
-                lines.append(f"材质/颜色：{', '.join(palette[:4])}")
+            lines.extend([line.strip() for line in summary.splitlines() if line.strip()])
+        field_groups = [
+            ("frame", "车架/轮廓"),
+            ("seat_and_backrest", "座椅/靠背"),
+            ("armrests", "扶手"),
+            ("controller", "控制器"),
+            ("rear_wheels", "后轮"),
+            ("front_casters", "前万向轮"),
+            ("footrests", "脚踏"),
+            ("rear_details", "后部可见细节"),
+            ("must_keep", "必须保留"),
+            ("colors_and_materials", "材质/颜色"),
+            ("must_avoid", "严格避免"),
+        ]
+        for key, label in field_groups:
+            items = value.get(key)
+            if isinstance(items, (list, tuple)):
+                normalized = [_clean_text(item) for item in items if _clean_text(item)]
+                if normalized:
+                    limit = 6 if key != "must_avoid" else 5
+                    lines.append(f"{label}：{', '.join(normalized[:limit])}")
         return lines
     return [line.strip() for line in _clean_text(value).splitlines() if line.strip()]
 
@@ -146,6 +156,9 @@ def _render_fallback_prompt(bundle: dict[str, Any]) -> str:
 
     if bundle.get("reference_handling"):
         blocks.append(f"参考图使用方式：{bundle['reference_handling']}")
+
+    if bundle.get("product_geometry_lock"):
+        blocks.append(f"产品结构底线：{bundle['product_geometry_lock']}")
 
     if bundle.get("error_cases"):
         avoid_text = "; ".join(str(item).strip().rstrip(".") for item in bundle["error_cases"] if str(item).strip())

@@ -28,6 +28,7 @@ VISION_MODEL = os.getenv(
     "VISION_MODEL",
     os.getenv("META_MODEL", str(RUNTIME_TUNABLES["model_config"].get("vision_model") or DEFAULT_TEXT_MODEL)),
 )
+VISION_PROMPT_VERSION = "2026-04-26-visible-evidence-v2"
 
 VISION_SCHEMA = {
     "type": "object",
@@ -76,7 +77,7 @@ def _load_json_object(raw_text: str) -> dict:
 
 
 def _reference_cache_key(reference_image_paths: list[str], model: str = VISION_MODEL) -> str:
-    parts: list[str] = [f"model={model}"]
+    parts: list[str] = [f"model={model}", f"prompt_version={VISION_PROMPT_VERSION}"]
     for raw_path in reference_image_paths:
         path = Path(raw_path).resolve()
         stat = path.stat()
@@ -131,12 +132,14 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
     user_parts = [
         {
             "text": (
-                "Analyze the wheelchair shown in these white-background product photos. "
-                "Identify only visible physical structure and appearance. "
-                "For advertising generation, treat any rear/lower removable battery pack or exposed battery cable as an omitted accessory, not a required visible feature. "
-                "Do not describe folded, semi-folded, collapsed, storage, or folding/unfolding configurations as required output. "
-                "Return one JSON object only with these keys exactly: "
-                "summary, frame, seat_and_backrest, armrests, controller, side_housing, rear_wheels, front_casters, footrests, rear_details, colors_and_materials, must_keep, must_avoid."
+                "请分析这些白底产品图里的电动轮椅，只根据真正看得见的视觉证据总结产品外观。"
+                "不要脑补隐藏结构、不可见背面细节、内部结构或广告里不一定该露出的部位。"
+                "如果某个特征只在个别角度短暂可见，也只能按“可见时应保持一致”的弱事实来描述，不能升级成夸张的强要求。"
+                "尤其不要把贴近靠背上角的短小一体式后把手，误写成高耸的护理推把、长竖杆或额外杆件。"
+                "对广告生成来说，后下方可拆电池、外露电池线和折叠演示都不应被当成必须展示的身份特征。"
+                "不要把折叠态、半折叠态、收纳态或折叠/展开过程写成必需输出。"
+                "请输出简短、原子化、可执行的短语，只返回一个 JSON 对象，键名必须严格是："
+                "summary, frame, seat_and_backrest, armrests, controller, side_housing, rear_wheels, front_casters, footrests, rear_details, colors_and_materials, must_keep, must_avoid。"
             )
         }
     ]
@@ -149,9 +152,11 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
             {
                 "role": "system",
                 "content": (
-                    "You are a product visual structure analyst. "
-                    "Summarize exact visible geometry and appearance only. "
-                    "Exclude rear/lower removable battery packs, exposed battery cables, and folding-state demonstrations from required advertising visuals."
+                    "你是一名产品视觉结构分析师。"
+                    "只总结参考图中能被视觉证据确认的几何、材质和比例关系。"
+                    "优先提炼能帮助广告生成保持产品身份的稳定特征。"
+                    "不要夸张后部结构，不要凭空发明隐藏零件。"
+                    "后下方可拆电池、外露电池线和折叠演示不属于广告里必须露出的结构特征。"
                 ),
             },
             {
@@ -172,6 +177,7 @@ def analyze_product_visual_structure(reference_image_paths: list[str], force_ref
         {
             "cache_key": cache_key,
             "model": VISION_MODEL,
+            "prompt_version": VISION_PROMPT_VERSION,
             "reference_image_paths": resolved_paths,
             "structure": structure,
         }

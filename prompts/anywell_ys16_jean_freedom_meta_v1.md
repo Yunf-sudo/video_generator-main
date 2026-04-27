@@ -1,47 +1,47 @@
 # AnyWell YS16 Jean Freedom Meta V1
 
-Use this brief as the hard creative boundary for three short-form Meta ads for the `YS16-1 PLUS` electric wheelchair.
+把这份 brief 当作 `YS16-1 PLUS` 电动轮椅三支 Meta 短广告的硬性创意边界。
 
-Creative north star:
-- Create three new anonymous 9:16 videos inspired only by the universal emotion in Jean's uploaded clip.
-- Emotional core: a white-haired older husband gets back outdoors near home while his spouse follows with warmth.
-- Legal and creative firewall: no direct recreation of Jean, her husband, their house, their woods, their ramp, or their real testimonial text.
+创意北极星：
+- 基于 Jean 上传视频中的普遍情绪，只做三支全新、匿名的 9:16 视频。
+- 情绪核心：一位白发年长丈夫在家附近重新回到户外，配偶温暖地陪伴在旁。
+- 法务与创意防火墙：绝不能直接复刻 Jean、她丈夫、他们的房子、树林、坡道，或真实 testimonial 文案。
 
-Mandatory audience and cast:
-- Heavy-set or plus-size American senior man age 60+ as the rider.
-- Same adult female spouse across connected shots.
-- Faces should stay natural and non-identifiable.
+强制人物设定：
+- 骑乘者必须是 60 岁以上、heavy-set 或 plus-size 的美国老年男性。
+- 相连镜头里必须是同一位成年女性配偶。
+- 面部应自然、不可识别。
 
-Mandatory product:
-- `YS16-1 PLUS` electric wheelchair only.
-- Offer: `Now $599, reg. $999`.
-- Key proof points: `500W dual motors`, `22-inch first-class wide seat`, `supports up to 330 lbs`, `folds in seconds for the trunk`.
-- Trust close must include: `FDA 510(k) Cleared`, `30-Day Risk-Free Trial`, `14-Day FREE Return Shipping`, `PayPal financing starting at $32.27/mo or as low as 0% APR`.
+强制产品要求：
+- 产品只能是 `YS16-1 PLUS` 电动轮椅。
+- 促销信息：`现价 $599，原价 $999`。
+- 关键卖点：`500W 双电机`、`22 英寸头等宽座`、`承重最高 330 磅`、`几秒内可折叠放入后备箱`。
+- 结尾信任信息必须包含：`FDA 510(k) Cleared`、`30-Day Risk-Free Trial`、`14-Day FREE Return Shipping`、`PayPal financing starting at $32.27/mo or as low as 0% APR`。
 
-Proportion and framing rules from c1 and c2:
-- The rider and wheelchair should feel like one grounded full-size unit.
-- The rider must visibly fill the wide seat naturally, but must not dwarf the chair.
-- The wheelchair must not look tiny under the rider.
-- Use medium or medium-wide 9:16 framing where most of the seated body and most of the chair are readable.
-- Keep empty headroom low and keep the chair large enough in frame to read as a premium product.
-- Favor clear side and front-side views with natural seat depth, leg support, and wheel size balance.
+来自 c1 / c2 的比例和构图规则：
+- 人物与轮椅必须像一个稳定、落地的全尺寸组合。
+- 人物要自然地占满宽座，但不能大到压缩轮椅比例。
+- 轮椅在人物身下不能显得很小。
+- 优先中景或中广景 9:16 构图，让大部分坐姿人物和大部分轮椅都可读。
+- 头顶留白要少，轮椅要足够大，读起来像高端产品。
+- 优先清楚的侧面和前侧视角，保持自然的座深、腿部支撑和轮组平衡。
 
-Scene rules:
-- Pure real-life seamless B-roll only.
-- No white-background product inserts.
-- No fake testimonial framing.
-- No hospital, rehab, or clinical mood.
-- No unfinished ramp recreation, no blue-house recreation, no red-chair recreation, and no exact woods geometry from the source clip.
-- No difficult folding action, no hand-folding close-up, no extreme tire macro, and no complicated interactions.
-- Safe actions only: smooth driving, gentle slope or grass crossing, calm seated posture, spouse walking beside, smile to camera, thumbs-up.
+场景规则：
+- 只能使用真人生活化、无缝衔接的 B-roll。
+- 不要插入白底产品图。
+- 不要做 fake testimonial 式构图。
+- 不要有医院、康复或临床氛围。
+- 不要复现未完工坡道、蓝色房屋、红色椅子，也不要复刻源素材里的树林路径几何。
+- 不要复杂折叠动作、手动折叠特写、极端轮胎微距或复杂交互。
+- 动作只能简单安全：平稳行驶、轻坡或草地通过、平静坐姿、配偶在旁陪走、对镜头微笑、竖大拇指。
 
-Language and text rules:
-- Voiceover and subtitles must be persuasive natural American English.
-- Keep total runtime between 15 and 20 seconds.
-- All offer text, price text, and trust text must be added in post only.
-- The generated footage itself must contain no readable in-scene captions, no fake sales text, and no gibberish letter artifacts.
+语言与文字规则：
+- 配音和字幕应为自然、有说服力的美式英语；提示词文本统一改为中文维护。
+- 总时长控制在 15 到 20 秒之间。
+- 所有优惠、价格、信任信息都只能后期叠加。
+- 生成的视频画面本身不能出现可读的场景内字幕、虚假促销文字或乱码字形。
 
-Structure:
-- Beat 1: `0-5s` hook.
-- Beat 2: `5-13s` action proof with room for spec overlays.
-- Beat 3: `13-20s` trust, price, and financing close.
+结构：
+- 第 1 段：`0-5s` 钩子。
+- 第 2 段：`5-13s` 行动证明，并为参数类 overlay 留空间。
+- 第 3 段：`13-20s` 信任、价格与融资收尾。
