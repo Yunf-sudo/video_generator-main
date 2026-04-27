@@ -1244,7 +1244,6 @@ def render_header() -> None:
 
 
 def render_brief_tab() -> None:
-    st.subheader("1. 产品简报")
     st.write("这里确定电动轮椅的广告目标、风格和产品一致性约束，后续模块都会沿用这份简报。")
     st.caption(f"当前默认参数配置文件：{APP_DEFAULTS_CONFIG_PATH}")
     st.caption("当前交互输入建议使用中文；系统会在调用模型前自动翻译成英文，再进入脚本/分镜/视频生成链路。")
@@ -1537,7 +1536,6 @@ def render_brief_tab() -> None:
 
 
 def render_script_tab() -> None:
-    st.subheader("2. 广告脚本")
     prompt_preview_messages, _, _ = build_script_messages(
         st.session_state["inputs"],
         translate_inputs=False,
@@ -1639,7 +1637,6 @@ def render_script_tab() -> None:
 
 
 def render_storyboard_tab() -> None:
-    st.subheader("3. 分镜图")
     script = st.session_state.get("script")
     if not script:
         st.info("请先生成脚本。")
@@ -1765,7 +1762,6 @@ def render_storyboard_tab() -> None:
 
 
 def render_clips_tab() -> None:
-    st.subheader("4. 视频片段")
     if not ordered_storyboard():
         st.info("请先生成分镜图。")
         return
@@ -1873,7 +1869,6 @@ def render_clips_tab() -> None:
 
 
 def render_audio_tab() -> None:
-    st.subheader("5. 配音、字幕、标题")
     script = st.session_state.get("script")
     if not script:
         st.info("请先生成脚本。")
@@ -1936,7 +1931,6 @@ def render_audio_tab() -> None:
 
 
 def render_export_tab() -> None:
-    st.subheader("6. 导出成片")
     ready_paths = ordered_clip_paths()
     if not ready_paths:
         st.info("请先生成视频片段。")
@@ -2059,7 +2053,6 @@ def render_export_tab() -> None:
 
 
 def render_ad_ops_tab() -> None:
-    st.subheader("7. 广告运营")
     st.write("这里统一处理 Meta 暂存池入库、关停预上架、审核、Agent 扫描和 Dry Run 测试。生成完成的视频可以接入 Meta，PAUSED 状态即视为库存。")
     st.caption(f"广告业务配置文件：{AD_OPS_CONFIG_PATH}")
 
