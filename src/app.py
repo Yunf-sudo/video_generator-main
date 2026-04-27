@@ -404,7 +404,7 @@ def load_run_state(run_id: str) -> bool:
     st.session_state["final_video_result"] = final_video_result
     st.session_state["capcut_result"] = _read_run_json(run_id, "capcut_result.json")
     st.session_state["last_meta_stage_result"] = None
-    st.session_state["active_step"] = infer_active_step()
+    set_active_step(infer_active_step())
     return True
 
 
@@ -489,6 +489,21 @@ def init_state() -> None:
         latest_run_id = latest_recoverable_run_id()
         if latest_run_id:
             load_run_state(latest_run_id)
+
+
+def set_active_step(step: str, rerun: bool = False) -> None:
+    normalized = str(step or "").strip()
+    if normalized not in STEP_OPTIONS:
+        return
+    st.session_state["active_step"] = normalized
+    st.session_state["active_step_nav"] = normalized
+    st.session_state["active_step_nav_synced"] = normalized
+    if rerun:
+        st.rerun()
+
+
+def _handle_active_step_nav_change() -> None:
+    set_active_step(str(st.session_state.get("active_step_nav") or "").strip())
 
 def extract_youtube_video_id(value: str) -> str:
     if not value:
@@ -906,7 +921,7 @@ def generate_script_step(
     )
     st.session_state["script"] = script
     st.session_state["script_chat_messages"] = messages
-    st.session_state["active_step"] = "广告脚本"
+    set_active_step("广告脚本")
     persist_run_json("script.json", script)
     persist_run_json("script_chat_messages.json", messages)
     reset_downstream("script")
@@ -924,7 +939,7 @@ def generate_storyboard_step() -> None:
         prompt_overrides=storyboard_overrides,
     )
     st.session_state["storyboard"] = storyboard
-    st.session_state["active_step"] = "视频片段"
+    set_active_step("视频片段")
     persist_run_json("storyboard.json", storyboard)
     reset_downstream("storyboard")
 
@@ -964,7 +979,7 @@ def submit_all_missing_clips() -> None:
         last_reference_frame = frame["saved_path"]
 
     st.session_state["video_result"] = current_results
-    st.session_state["active_step"] = "视频片段"
+    set_active_step("视频片段")
     persist_run_json("video_result.json", current_results)
     reset_downstream("clips")
 
@@ -1008,7 +1023,7 @@ def resolve_all_pending_clips() -> None:
         current_results[scene_key] = refreshed
         last_reference_frame = refreshed.get("last_frame_path") or last_reference_frame or frame["saved_path"]
     st.session_state["video_result"] = current_results
-    st.session_state["active_step"] = "视频片段"
+    set_active_step("视频片段")
     persist_run_json("video_result.json", current_results)
 
 
@@ -1016,7 +1031,7 @@ def generate_metadata_step() -> None:
     current_run_paths()
     ti_intro, _ = generate_ti_intro(st.session_state["script"])
     st.session_state["ti_intro"] = ti_intro
-    st.session_state["active_step"] = "配音字幕"
+    set_active_step("配音字幕")
     persist_run_json("ti_intro.json", ti_intro)
 
 
@@ -1036,7 +1051,7 @@ def generate_tts_step(text_override: str | None = None) -> None:
         "duration": duration,
         "text_override": str(text_override or "").strip(),
     }
-    st.session_state["active_step"] = "配音字幕"
+    set_active_step("配音字幕")
     persist_run_json("tts_result.json", st.session_state["tts_result"])
 
 
@@ -1058,7 +1073,7 @@ def generate_subtitles_step() -> None:
         "srt_url": srt_url,
         "srt_path": srt_path,
     }
-    st.session_state["active_step"] = "配音字幕"
+    set_active_step("配音字幕")
     persist_run_json("tts_result.json", st.session_state["tts_result"])
 
 
@@ -1127,7 +1142,7 @@ def export_formal_video_step() -> None:
             transition_duration=float(st.session_state.get("inputs", {}).get("transition_duration_seconds", 0.35) or 0.0),
             aspect_ratio=st.session_state.get("inputs", {}).get("video_orientation", "9:16"),
         )
-    st.session_state["active_step"] = "导出成片"
+    set_active_step("导出成片")
     persist_run_json("final_video_result.json", st.session_state["final_video_result"])
 
 
@@ -1176,7 +1191,7 @@ def render_sidebar() -> None:
                 create_new_run()
                 st.session_state["inputs"] = copy.deepcopy(DEFAULT_INPUTS)
                 st.session_state["reference_image_paths"] = []
-                st.session_state["active_step"] = "产品简报"
+                set_active_step("产品简报")
                 reset_generated_state()
                 persist_current_brief()
                 st.rerun()
@@ -1500,7 +1515,7 @@ def render_brief_tab() -> None:
             if upload_files
             else _coerce_list(st.session_state.get("reference_image_paths"))
         )
-        st.session_state["active_step"] = "广告脚本"
+        set_active_step("广告脚本")
         reset_generated_state()
         persist_run_json(
             "brief.json",
@@ -2014,7 +2029,7 @@ def render_export_tab() -> None:
                         "meta_mapping": {},
                     }
         if next_cols[1].button("进入广告运营", use_container_width=True):
-            st.session_state["active_step"] = "广告运营"
+            set_active_step("广告运营")
             st.rerun()
 
         _render_meta_stage_report(st.session_state.get("last_meta_stage_result"))
@@ -2031,7 +2046,7 @@ def render_export_tab() -> None:
                 uploaded_video_result = upload_all_videos_to_rustfs(st.session_state.get("video_result", {}))
                 draft_id, draft_url = quick_cut_video(uploaded_video_result, _coerce_dict(st.session_state.get("tts_result")), bgm_result=None)
                 st.session_state["capcut_result"] = {"draft_id": draft_id, "draft_url": draft_url}
-                st.session_state["active_step"] = "导出成片"
+                set_active_step("导出成片")
                 persist_run_json("capcut_result.json", st.session_state["capcut_result"])
                 st.success("已导入剪映。")
             except Exception as exc:
@@ -2416,34 +2431,35 @@ def main() -> None:
         current_run_paths()
     render_header()
     if st.session_state.get("active_step") not in STEP_OPTIONS:
-        st.session_state["active_step"] = infer_active_step()
+        set_active_step(infer_active_step())
     if st.session_state.get("active_step_nav_synced") != st.session_state.get("active_step"):
-        st.session_state["active_step_nav"] = st.session_state.get("active_step")
-        st.session_state["active_step_nav_synced"] = st.session_state.get("active_step")
+        set_active_step(str(st.session_state.get("active_step") or "").strip())
     active_step = st.radio(
         "工作步骤",
         STEP_OPTIONS,
         key="active_step_nav",
         horizontal=True,
+        on_change=_handle_active_step_nav_change,
     )
     if active_step != st.session_state.get("active_step"):
-        st.session_state["active_step"] = active_step
-        st.session_state["active_step_nav_synced"] = active_step
+        set_active_step(active_step)
     st.caption(f"当前进度建议：{infer_active_step()}。加载历史 Run 后会自动跳到对应步骤。")
 
-    if active_step == "产品简报":
+    current_step = str(st.session_state.get("active_step") or active_step)
+
+    if current_step == "产品简报":
         render_brief_tab()
-    elif active_step == "广告脚本":
+    elif current_step == "广告脚本":
         render_script_tab()
-    elif active_step == "分镜图":
+    elif current_step == "分镜图":
         render_storyboard_tab()
-    elif active_step == "视频片段":
+    elif current_step == "视频片段":
         render_clips_tab()
-    elif active_step == "配音字幕":
+    elif current_step == "配音字幕":
         render_audio_tab()
-    elif active_step == "导出成片":
+    elif current_step == "导出成片":
         render_export_tab()
-    elif active_step == "广告运营":
+    elif current_step == "广告运营":
         render_ad_ops_tab()
     render_sidebar()
 
