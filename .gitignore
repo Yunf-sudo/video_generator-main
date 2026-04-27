@@ -41,6 +41,7 @@ youtube_data/
 
 # Large/private source media and product references
 白底图/
+Agent.zip
 *.mp4
 *.mp3
 *.wav
