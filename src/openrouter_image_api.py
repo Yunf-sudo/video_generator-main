@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import io
 import mimetypes
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -26,7 +28,13 @@ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 OPENROUTER_CHAT_COMPLETIONS_URL = f"{OPENROUTER_BASE_URL}/chat/completions"
 OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "video_v1").strip()
 OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "").strip()
+OPENROUTER_IMAGE_CONNECT_TIMEOUT_SECONDS = float(os.getenv("OPENROUTER_IMAGE_CONNECT_TIMEOUT_SECONDS", "30") or "30")
 OPENROUTER_IMAGE_HTTP_TIMEOUT_SECONDS = float(os.getenv("OPENROUTER_IMAGE_HTTP_TIMEOUT_SECONDS", "300") or "300")
+OPENROUTER_IMAGE_RETRY_COUNT = max(1, int(os.getenv("OPENROUTER_IMAGE_RETRY_COUNT", "3") or "3"))
+OPENROUTER_IMAGE_RETRY_BACKOFF_SECONDS = float(os.getenv("OPENROUTER_IMAGE_RETRY_BACKOFF_SECONDS", "6") or "6")
+OPENROUTER_REFERENCE_MAX_SIDE = max(768, int(os.getenv("OPENROUTER_REFERENCE_MAX_SIDE", "1600") or "1600"))
+OPENROUTER_REFERENCE_MAX_BYTES = max(250_000, int(os.getenv("OPENROUTER_REFERENCE_MAX_BYTES", "1400000") or "1400000"))
+RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524}
 OPENROUTER_IMAGE_ONLY_GUARDRAIL = (
     "You are generating the final image now. "
     "Return image output only. Do not explain, do not rewrite the prompt, do not output markdown, and do not describe the image in text."
@@ -40,14 +48,59 @@ def openrouter_api_key() -> str:
     raise RuntimeError("未配置 OPENROUTER_API_KEY。图片生成现已走 OpenRouter，请在 .env 中补充该变量。")
 
 
-def _encode_image_to_base64(image_path: str) -> str:
-    return base64.b64encode(Path(image_path).read_bytes()).decode("utf-8")
+def _http_timeout() -> tuple[float, float]:
+    return (OPENROUTER_IMAGE_CONNECT_TIMEOUT_SECONDS, OPENROUTER_IMAGE_HTTP_TIMEOUT_SECONDS)
+
+def _load_reference_image_payload(image_path: str) -> tuple[str, bytes]:
+    path = Path(image_path)
+    mime_type, _ = mimetypes.guess_type(image_path)
+    resolved_mime = mime_type or "image/png"
+    original_bytes = path.read_bytes()
+
+    try:
+        from PIL import Image
+    except Exception:
+        return resolved_mime, original_bytes
+
+    try:
+        with Image.open(path) as image:
+            image.load()
+            width, height = image.size
+            needs_resize = max(width, height) > OPENROUTER_REFERENCE_MAX_SIDE
+            needs_reencode = (
+                len(original_bytes) > OPENROUTER_REFERENCE_MAX_BYTES
+                or resolved_mime not in {"image/jpeg", "image/png", "image/webp"}
+            )
+            if not needs_resize and not needs_reencode:
+                return resolved_mime, original_bytes
+
+            working = image.convert("RGB")
+            if needs_resize:
+                scale = OPENROUTER_REFERENCE_MAX_SIDE / float(max(width, height))
+                resized_size = (
+                    max(1, int(round(width * scale))),
+                    max(1, int(round(height * scale))),
+                )
+                resampling = getattr(Image, "Resampling", Image).LANCZOS
+                working = working.resize(resized_size, resampling)
+
+            encoded = b""
+            for quality in (90, 84, 78, 72):
+                buffer = io.BytesIO()
+                working.save(buffer, format="JPEG", quality=quality, optimize=True)
+                encoded = buffer.getvalue()
+                if len(encoded) <= OPENROUTER_REFERENCE_MAX_BYTES:
+                    break
+            if encoded:
+                return "image/jpeg", encoded
+        return resolved_mime, original_bytes
+    except Exception:
+        return resolved_mime, original_bytes
 
 
 def _data_url_for_image(image_path: str) -> str:
-    mime_type, _ = mimetypes.guess_type(image_path)
-    resolved_mime = mime_type or "image/png"
-    return f"data:{resolved_mime};base64,{_encode_image_to_base64(image_path)}"
+    mime_type, payload = _load_reference_image_payload(image_path)
+    return f"data:{mime_type};base64,{base64.b64encode(payload).decode('utf-8')}"
 
 
 def _guess_ext_from_mime(mime_type: str | None) -> str:
@@ -68,7 +121,7 @@ def _save_generated_image(image_url: str, out_dir: str | None = None) -> str:
         output_path.write_bytes(base64.b64decode(payload))
         return str(output_path)
 
-    response = requests.get(image_url, timeout=OPENROUTER_IMAGE_HTTP_TIMEOUT_SECONDS)
+    response = requests.get(image_url, timeout=_http_timeout())
     response.raise_for_status()
     mime_type = response.headers.get("Content-Type")
     suffix = Path(image_url.split("?")[0]).suffix or _guess_ext_from_mime(mime_type)
@@ -145,7 +198,27 @@ def _extract_rewritten_prompt(text: str) -> str:
     return normalized
 
 
-def _request_image_completion(
+def _format_request_exception(exc: requests.exceptions.RequestException) -> str:
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        response = exc.response
+        body = ""
+        try:
+            body = response.text[:1200]
+        except Exception:
+            body = ""
+        return f"OpenRouter 图片生成失败 {response.status_code}: {body}".strip()
+    return str(exc)
+
+
+def _is_retryable_request_exception(exc: requests.exceptions.RequestException) -> bool:
+    if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        return int(exc.response.status_code) in RETRYABLE_STATUS_CODES
+    return False
+
+
+def _request_image_completion_once(
     *,
     prompt: str,
     model: str,
@@ -196,15 +269,42 @@ def _request_image_completion(
         OPENROUTER_CHAT_COMPLETIONS_URL,
         headers=headers,
         json=payload,
-        timeout=OPENROUTER_IMAGE_HTTP_TIMEOUT_SECONDS,
+        timeout=_http_timeout(),
     )
     if not response.ok:
-        raise RuntimeError(f"OpenRouter 图片生成失败 {response.status_code}: {response.text[:1200]}")
+        error = requests.exceptions.HTTPError(f"OpenRouter 图片生成失败 {response.status_code}")
+        error.response = response
+        raise error
 
     result = response.json()
     if isinstance(result, dict) and result.get("error"):
         raise RuntimeError(f"OpenRouter 图片生成错误: {result['error']}")
     return result
+
+
+def _request_image_completion(
+    *,
+    prompt: str,
+    model: str,
+    aspect_ratio: str,
+    reference_pic_paths: list[str] | None,
+    system_prompt: str | None,
+) -> dict[str, Any]:
+    for attempt in range(1, OPENROUTER_IMAGE_RETRY_COUNT + 1):
+        try:
+            return _request_image_completion_once(
+                prompt=prompt,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                reference_pic_paths=reference_pic_paths,
+                system_prompt=system_prompt,
+            )
+        except requests.exceptions.RequestException as exc:
+            if attempt >= OPENROUTER_IMAGE_RETRY_COUNT or not _is_retryable_request_exception(exc):
+                raise RuntimeError(
+                    f"OpenRouter 图片请求在 {attempt} 次尝试后仍失败：{_format_request_exception(exc)}"
+                ) from exc
+            time.sleep(OPENROUTER_IMAGE_RETRY_BACKOFF_SECONDS * attempt)
 
 
 def generate_image(

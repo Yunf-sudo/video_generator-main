@@ -57,6 +57,11 @@ def _normalized_lines(value: Any) -> list[str]:
             palette = [_clean_text(item) for item in materials if _clean_text(item)]
             if palette:
                 lines.append(f"材质/颜色：{', '.join(palette[:4])}")
+        must_avoid = value.get("must_avoid")
+        if isinstance(must_avoid, (list, tuple)):
+            blocked = [_clean_text(item) for item in must_avoid if _clean_text(item)]
+            if blocked:
+                lines.append(f"必须避免：{', '.join(blocked[:6])}")
         return lines
     return [line.strip() for line in _clean_text(value).splitlines() if line.strip()]
 

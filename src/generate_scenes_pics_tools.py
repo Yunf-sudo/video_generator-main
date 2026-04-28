@@ -29,6 +29,7 @@ APP_RUNTIME_FLAGS = RUNTIME_TUNABLES["app_runtime_flags"]
 STORYBOARD_TEXT_GUARDRAIL_APPEND = (
     "画面清洁硬约束：最终分镜图本身不能出现任何字幕、lower-third、价格字、营销文案、按钮、角标、水印、界面 UI、"
     "社媒壳层、贴片文案或任何可读/半可读字符，包括中文、英文、数字、符号和乱码字形。"
+    "唯一例外是参考实物本身自带、位于靠背上半部布面/口袋区域的居中白色 AnyWell 品牌布标；它属于产品本体，不属于后期字幕或 UI。"
     "如果脚本里提到 caption、subtitle、hook、offer、price、CTA 或后期文案，只表示后期可用的留白区域，"
     "不是让你把文字真的生成进画面。"
 )
@@ -41,10 +42,11 @@ STORYBOARD_TEXT_RISK_PATTERNS = [
     r"\bcall to action\b",
     r"\bbrand graphic\b",
     r"\bbrand lockup\b",
+    r"\blogo lockup\b",
+    r"\blogo overlay\b",
     r"\bend card\b",
     r"\bprice\b",
     r"\boffer\b",
-    r"\blogo\b",
     r"\bwatermark\b",
     r"\btagline\b",
 ]
@@ -160,6 +162,100 @@ def _scene_requests_controller_detail(scene_description: str, visuals: dict | No
     )
 
 
+def _scene_requests_front_caster_visible(scene_description: str, visuals: dict | None) -> bool:
+    haystack = " ".join(
+        [
+            str(scene_description or ""),
+            json.dumps(visuals or {}, ensure_ascii=False),
+        ]
+    ).lower()
+    return any(
+        token in haystack
+        for token in [
+            "front caster",
+            "front wheel",
+            "front-profile",
+            "front profile",
+            "front-side",
+            "side profile",
+            "joystick-side",
+            "wheel profile",
+            "前万向轮",
+            "前轮",
+            "前侧",
+            "侧面",
+        ]
+    )
+
+
+def _scene_requests_forward_motion(scene_description: str, visuals: dict | None) -> bool:
+    haystack = " ".join(
+        [
+            str(scene_description or ""),
+            json.dumps(visuals or {}, ensure_ascii=False),
+        ]
+    ).lower()
+    return any(
+        token in haystack
+        for token in [
+            "moving",
+            "glides",
+            "drives",
+            "driving",
+            "rolls",
+            "rolling",
+            "continues",
+            "tracking shot",
+            "forward travel",
+            "moving left to right",
+            "平稳前行",
+            "继续前进",
+            "向前",
+            "行驶",
+            "移动",
+            "跟拍",
+        ]
+    )
+
+
+def _scene_requests_chassis_detail(scene_description: str, visuals: dict | None) -> bool:
+    haystack = " ".join(
+        [
+            str(scene_description or ""),
+            json.dumps(visuals or {}, ensure_ascii=False),
+        ]
+    ).lower()
+    return any(
+        token in haystack
+        for token in [
+            "chassis",
+            "underframe",
+            "undercarriage",
+            "underbody",
+            "underside",
+            "under-seat",
+            "under seat",
+            "wheel hub close",
+            "rear wheel connection",
+            "rear wheel joint",
+            "motor close",
+            "motor detail",
+            "axle detail",
+            "cross brace",
+            "x-brace",
+            "support bar",
+            "底盘",
+            "底部连杆",
+            "底盘连接",
+            "后轮与底盘连接",
+            "后轮连接",
+            "轮毂特写",
+            "电机特写",
+            "交叉支撑",
+        ]
+    )
+
+
 def _build_scene_product_reference_plan(
     scene_description: str,
     visuals: dict | None,
@@ -172,9 +268,13 @@ def _build_scene_product_reference_plan(
 
     overview_paths = [str(path).strip() for path in bundle.get("overview", []) if str(path).strip()]
     detail_paths = [str(path).strip() for path in bundle.get("detail", []) if str(path).strip()]
+    chassis_overview_paths = [str(path).strip() for path in bundle.get("chassis_overview", []) if str(path).strip()]
+    chassis_detail_paths = [str(path).strip() for path in bundle.get("chassis_detail", []) if str(path).strip()]
+    chassis_paths = chassis_overview_paths + chassis_detail_paths
     generic_paths = [str(path).strip() for path in bundle.get("generic", []) if str(path).strip()]
 
     needs_joystick_detail = _scene_requests_controller_detail(scene_description, visuals)
+    needs_chassis_detail = _scene_requests_chassis_detail(scene_description, visuals)
     needs_backrest_logo = _scene_requests_backrest_logo(scene_description, visuals)
 
     strategy_notes: list[str] = []
@@ -184,14 +284,53 @@ def _build_scene_product_reference_plan(
         strategy_notes.append(
             "参考图分配规则：轮椅整体身份、车架比例、前后轮关系、侧壳、脚踏、靠背布面、后把手和 logo 位置，始终以多视角全景拼版为主锚点。"
         )
+        strategy_notes.append(
+            "如果镜头能看到前万向轮，就从全景拼版里的前轮细节继承真实前叉总成：保持黑色小前轮、真实叉架厚度、连接点和轮轴关系，不要画成自行车前叉、细杆脚轮或错误的双叉结构。"
+        )
+        strategy_notes.append(
+            "只有当镜头是后背正向或后侧 3/4，且后背口袋区域正面朝向镜头时，才允许看到参考产品自带的居中白色 AnyWell 布标；前侧或纯侧构图里不要读到任何 side logo。"
+        )
+    if chassis_paths:
+        strategy_notes.append(
+            "如果镜头会看到底盘、后轮连接处、电机、交叉支撑管或座椅下方开放结构，就把底盘参考图当成局部硬锚点，锁定 X 形支撑管、后轮与底盘连接件、后轮内侧电机/轮毂关系和开放式底部结构。"
+        )
 
-    if needs_joystick_detail and detail_paths:
-        selected_product_paths = merge_reference_images(detail_paths, overview_paths, generic_paths, limit=len(all_paths))
+    if needs_joystick_detail and needs_chassis_detail and (detail_paths or chassis_paths):
+        selected_product_paths = merge_reference_images(
+            detail_paths,
+            chassis_detail_paths,
+            chassis_overview_paths,
+            overview_paths,
+            generic_paths,
+            limit=len(all_paths),
+        )
+        strategy_notes.append(
+            "这个镜头同时涉及右手控制和底盘可见区域，所以优先锁定把手/摇杆细节与底盘结构，再由全景拼版维持整车比例。"
+        )
+    elif needs_joystick_detail and detail_paths:
+        selected_product_paths = merge_reference_images(
+            detail_paths,
+            overview_paths,
+            chassis_overview_paths,
+            generic_paths,
+            limit=len(all_paths),
+        )
         strategy_notes.append(
             "这个镜头能看到右手、摇杆或控制面板，所以把手/摇杆细节拼版必须作为局部强锚点：保持弯管把手、橡胶握把、摇杆帽形状、控制器外壳体块、按键布局和指示灯位置一致。"
         )
+    elif needs_chassis_detail and chassis_paths:
+        selected_product_paths = merge_reference_images(
+            chassis_detail_paths,
+            chassis_overview_paths,
+            overview_paths,
+            generic_paths,
+            limit=len(all_paths),
+        )
+        strategy_notes.append(
+            "这个镜头会暴露底盘、后轮与底盘连接处或座椅下方开放结构，所以底盘参考图必须优先：保持 X 形交叉支撑管、后轮内侧电机位置、连接件角度、银灰/黑色金属件比例和开放式底部关系一致。"
+        )
     elif needs_backrest_logo:
-        selected_product_paths = merge_reference_images(overview_paths, generic_paths, limit=len(all_paths))
+        selected_product_paths = merge_reference_images(overview_paths, chassis_overview_paths, generic_paths, limit=len(all_paths))
         strategy_notes.append(
             "这个镜头能看到靠背上半部或侧后方，所以必须从全景拼版继承后背布面、AnyWell 标识位置和短小后把手关系。"
         )
@@ -200,10 +339,14 @@ def _build_scene_product_reference_plan(
                 "如果这个镜头并没有清楚看到摇杆和控制面板，就不要让把手/摇杆细节拼版喧宾夺主。"
             )
     elif overview_paths:
-        selected_product_paths = merge_reference_images(overview_paths, generic_paths, limit=len(all_paths))
+        selected_product_paths = merge_reference_images(overview_paths, generic_paths, chassis_overview_paths, limit=len(all_paths))
         if detail_paths:
             strategy_notes.append(
                 "这不是摇杆近景时，不要为了呼应细节拼版而强行放大控制器或额外暴露手部近景。"
+            )
+        if chassis_paths:
+            strategy_notes.append(
+                "这不是底盘特写时，不要为了呼应底盘参考图而刻意使用过低机位或无缘无故暴露座椅下方。"
             )
     else:
         selected_product_paths = all_paths
@@ -248,9 +391,10 @@ def _scene_requests_backrest_logo(scene_description: str, visuals: dict | None) 
             "brand is visible",
             "anywell brand is visible",
             "anywell logo",
-            "upper backrest if the angle allows",
-            "backrest fabric is subtly visible",
-            "brand 'anywell' is subtly visible",
+            "backrest pocket logo",
+            "rear logo visible",
+            "rear backrest logo visible",
+            "backrest logo faces camera",
         ]
     )
     rear_visibility_signal = any(
@@ -273,14 +417,33 @@ def _scene_specific_storyboard_guardrail(
 ) -> tuple[str, bool, bool]:
     expect_joystick_pinch_visible = _scene_requests_joystick_pinch(scene_description, visuals)
     expect_backrest_logo_visible = _scene_requests_backrest_logo(scene_description, visuals)
+    expect_front_caster_visible = _scene_requests_front_caster_visible(scene_description, visuals)
+    expect_forward_motion = _scene_requests_forward_motion(scene_description, visuals)
+    expect_chassis_detail = _scene_requests_chassis_detail(scene_description, visuals)
     instructions: list[str] = []
     if expect_joystick_pinch_visible:
         instructions.append(
             "场景级硬约束：这是自驾镜头，必须能看清乘坐者右手用大拇指和食指捏住右侧摇杆，形成明确的 precision pinch；不要让手势含糊、不要只把手搭在扶手上，也不要被构图完全挡住。"
         )
+    if expect_front_caster_visible:
+        instructions.append(
+            "场景级硬约束：如果前万向轮可见，必须匹配参考图里的真实前叉总成与轮轴关系：保持黑色小前轮、厚实黑色叉架/支架、真实连接件与轮轴位置，不要简化成细杆脚轮、自行车前叉、手推轮椅那种错误双叉，或其他被重新设计过的前轮结构。"
+        )
+    if expect_front_caster_visible and expect_forward_motion:
+        instructions.append(
+            "因为这是明确前进镜头，前万向轮要呈现自然拖曳后的受力关系：转轴在前，小轮中心优先在后，前叉从转轴向后包住小轮；不要出现前叉朝前硬伸、像反装、像僵死锁住的错误方向。"
+        )
+    if expect_chassis_detail:
+        instructions.append(
+            "场景级硬约束：这个镜头会看到座椅下方、后轮内侧或底盘连接处，因此必须保留参考图里的开放式底盘结构：中央 X 形交叉支撑管、左右对称的下部管架、后轮内侧圆柱电机/轮毂关系，以及靠近后轮的真实连接支架。不要把底盘改成整块封闭底板、黑盒、假悬挂、单杆替代或左右不对称的错误连杆。"
+        )
     if expect_backrest_logo_visible:
         instructions.append(
-            "场景级硬约束：这个镜头会看到靠背上半部或轻微后侧背面，因此必须在靠背上半部布面看到居中的白色 AnyWell 标识；不要缺失，也不要把标识放到侧板、扶手、轮子或底盘。"
+            "场景级硬约束：只有当镜头是后背正向或后侧 3/4，且后背口袋区域正面朝向镜头时，才允许在靠背上半部布面看到居中的白色 AnyWell 标识；不要缺失，也不要把标识放到侧板、扶手、轮子或底盘。"
+        )
+    else:
+        instructions.append(
+            "场景级硬约束：这不是后背正向口袋视角，因此侧边、前侧和纯侧构图里绝对不要读到 AnyWell logo；靠背侧边应保持纯黑布面，不要出现可读字样。"
         )
     return "\n".join(instructions), expect_joystick_pinch_visible, expect_backrest_logo_visible
 
@@ -326,6 +489,8 @@ def _strip_storyboard_text_risk_phrases(value: str) -> str:
     replacements = [
         (r"(?i)\b(?:subtle\s+)?brand graphic\b", ""),
         (r"(?i)\bbrand lockup\b", ""),
+        (r"(?i)\blogo lockup\b", ""),
+        (r"(?i)\blogo overlay\b", ""),
         (r"(?i)\bend card\b", ""),
         (r"(?i)\bcall to action\b", ""),
         (r"(?i)\bCTA\b", ""),
@@ -336,8 +501,6 @@ def _strip_storyboard_text_risk_phrases(value: str) -> str:
         (r"(?i)\bwatermark\b", ""),
         (r"(?i)\bprice\b", ""),
         (r"(?i)\boffer\b", ""),
-        (r"(?i)\bAnyWell logo\b", "backrest fabric"),
-        (r"(?i)\blogo\b", "fabric detail"),
     ]
     sanitized = text
     for pattern, replacement in replacements:

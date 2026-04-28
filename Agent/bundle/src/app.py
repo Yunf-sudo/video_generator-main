@@ -510,6 +510,8 @@ def init_state() -> None:
         "last_dry_run_result": None,
         "archive_feature_summary": None,
         "suppress_auto_restore_once": False,
+        "image_preview_percent": 55,
+        "video_preview_percent": 55,
     }
 
     for key, value in defaults.items():
@@ -550,6 +552,37 @@ def _handle_active_step_nav_change() -> None:
         return
     st.session_state["active_step"] = selected
     st.session_state["active_step_nav_synced"] = selected
+
+
+def _preview_fraction(state_key: str, default: int = 55) -> float:
+    try:
+        value = int(st.session_state.get(state_key, default) or default)
+    except Exception:
+        value = default
+    value = max(30, min(100, value))
+    return value / 100.0
+
+
+def _preview_target_container(state_key: str, default: int = 55):
+    fraction = _preview_fraction(state_key, default=default)
+    if fraction >= 0.98:
+        return st.container()
+    side = max(0.0, (1.0 - fraction) / 2.0)
+    return st.columns([side, fraction, side])[1]
+
+
+def render_preview_image(path: str, caption: str | None = None) -> None:
+    with _preview_target_container("image_preview_percent", default=55):
+        st.image(path, use_container_width=True)
+        if caption:
+            st.caption(caption)
+
+
+def render_preview_video(path: str, caption: str | None = None) -> None:
+    with _preview_target_container("video_preview_percent", default=55):
+        st.video(path)
+        if caption:
+            st.caption(caption)
 
 def extract_youtube_video_id(value: str) -> str:
     if not value:
@@ -619,6 +652,41 @@ def _set_video_prompt_override(scene_number: int, video_prompt: str) -> None:
     else:
         overrides.pop(str(scene_number), None)
     st.session_state["inputs"]["video_prompt_overrides"] = overrides
+
+
+def _submit_scene_video_task(frame: dict, video_prompt: str) -> str:
+    scene_number = _safe_int(frame.get("scene_number"), default=0)
+    if scene_number <= 0:
+        raise ValueError("Invalid storyboard scene number.")
+
+    scene_key = str(scene_number)
+    prompt_text = str(video_prompt or "").strip()
+    _set_video_prompt_override(scene_number, prompt_text)
+    persist_current_brief()
+
+    with st.spinner(f"正在提交场景 {scene_key} 视频任务..."):
+        clip_result = generate_video_from_image_path(
+            frame["saved_path"],
+            frame.get("scene_description", ""),
+            frame.get("visuals", {}),
+            scene_audio=frame.get("audio", {}),
+            continuity=frame.get("continuity"),
+            last_frame=_previous_video_reference_frame(scene_number),
+            until_finish=False,
+            aspect_ratio=st.session_state["inputs"]["video_orientation"],
+            duration_seconds=frame.get("duration_seconds", 8),
+            force_local=False,
+            meta=st.session_state.get("inputs"),
+            prompt_override=prompt_text,
+        )
+
+    current_results = copy.deepcopy(st.session_state.get("video_result", {}))
+    current_results[scene_key] = clip_result
+    st.session_state["video_result"] = current_results
+    persist_run_json("video_result.json", current_results)
+    reset_downstream("clips")
+    st.session_state["video_submit_notice"] = f"场景 {scene_key} 视频任务已更新。"
+    return scene_key
 
 
 def _video_previous_reference_disabled_scenes() -> set[str]:
@@ -1282,6 +1350,24 @@ def render_sidebar() -> None:
             st.caption(f"当前 Run：{run_id}")
             st.caption(f"输出目录：{active_run.root}")
 
+        st.markdown("## 预览大小")
+        st.slider(
+            "图片预览宽度",
+            min_value=30,
+            max_value=100,
+            step=5,
+            key="image_preview_percent",
+            help="只影响网页端图片预览大小，不改变生成文件。",
+        )
+        st.slider(
+            "视频预览宽度",
+            min_value=30,
+            max_value=100,
+            step=5,
+            key="video_preview_percent",
+            help="只影响网页端视频预览大小，不改变导出视频。",
+        )
+
         st.markdown("## 快捷操作")
         if st.button("一键生成正式版", use_container_width=True):
             with st.spinner("正在从简报一路跑到正式成片，这会持续几分钟到十几分钟不等..."):
@@ -1789,7 +1875,7 @@ def render_storyboard_tab() -> None:
             left, right = st.columns([1, 1.2])
             with left:
                 if frame.get("saved_path"):
-                    st.image(frame["saved_path"], use_container_width=True)
+                    render_preview_image(frame["saved_path"])
                 elif frame.get("image_generation_mode") == "failed":
                     st.error("这个场景的分镜图未通过质检或远端生成失败，没有再用本地插画占位图顶替。")
                 else:
@@ -1921,7 +2007,11 @@ def render_clips_tab() -> None:
                 st.error(f"视频片段生成失败：{exc}")
 
     st.caption("正式成片建议全部场景都使用远端动态片段。若显示为本地预览，则说明该场景回退到了本地占位片段。")
+    submit_notice = str(st.session_state.pop("video_submit_notice", "") or "").strip()
+    if submit_notice:
+        st.success(submit_notice)
     prompt_overrides = _video_prompt_overrides()
+    should_rerun_after_submit = False
 
     for frame in ordered_storyboard():
         scene_key = str(frame["scene_number"])
@@ -1943,7 +2033,7 @@ def render_clips_tab() -> None:
         with st.container(border=True):
             st.markdown(f"**场景 {scene_key}**")
             if scene_result.get("video_path"):
-                st.video(scene_result["video_path"])
+                render_preview_video(scene_result["video_path"])
                 actual_duration = scene_result.get("duration_seconds") or scene_result.get("planned_duration_seconds")
                 st.caption(f"时长：{actual_duration}s")
                 if scene_result.get("generation_mode") == "remote":
@@ -1956,6 +2046,19 @@ def render_clips_tab() -> None:
                 st.info(f"远端任务 ID：{scene_result['video_id']}")
             else:
                 st.info("这个场景还没开始生成视频。")
+            submit_label = "重新生成这个片段" if (scene_result.get("video_path") or scene_result.get("video_id")) else "提交这个片段"
+            editor_key = f"video_prompt_editor_{scene_key}"
+            if st.button(
+                submit_label,
+                key=f"video_regenerate_direct_{scene_key}",
+                use_container_width=True,
+            ):
+                try:
+                    _submit_scene_video_task(frame, str(st.session_state.get(editor_key) or default_video_prompt))
+                    should_rerun_after_submit = True
+                except Exception as exc:
+                    _display_generation_error("视频任务提交失败", exc)
+            st.caption("单独重跑这个场景，直接点上面的按钮。")
             with st.expander("查看本场景当前视频提示词", expanded=False):
                 st.code(default_video_prompt, language="text")
             with st.expander("直接修改提示词并提交", expanded=False):
@@ -1963,37 +2066,17 @@ def render_clips_tab() -> None:
                     "可编辑 | 本场景视频 Prompt",
                     value=default_video_prompt,
                     height=180,
-                    key=f"video_prompt_editor_{scene_key}",
+                    key=editor_key,
                 )
-                submit_label = "重新提交这个片段" if (scene_result.get("video_path") or scene_result.get("video_id")) else "提交这个片段"
-                if st.button(submit_label, key=f"video_regenerate_{scene_key}", use_container_width=True):
-                    _set_video_prompt_override(int(frame["scene_number"]), video_prompt)
-                    persist_current_brief()
+                if st.button("按上面的 Prompt 重新生成", key=f"video_regenerate_custom_{scene_key}", use_container_width=True):
                     try:
-                        with st.spinner(f"正在提交场景 {scene_key} 视频任务..."):
-                            clip_result = generate_video_from_image_path(
-                                frame["saved_path"],
-                                frame.get("scene_description", ""),
-                                frame.get("visuals", {}),
-                                scene_audio=frame.get("audio", {}),
-                                continuity=frame.get("continuity"),
-                                last_frame=_previous_video_reference_frame(int(frame["scene_number"])),
-                                until_finish=False,
-                                aspect_ratio=st.session_state["inputs"]["video_orientation"],
-                                duration_seconds=frame.get("duration_seconds", 8),
-                                force_local=False,
-                                meta=st.session_state.get("inputs"),
-                                prompt_override=video_prompt,
-                            )
-                        current_results = copy.deepcopy(st.session_state.get("video_result", {}))
-                        current_results[scene_key] = clip_result
-                        st.session_state["video_result"] = current_results
-                        persist_run_json("video_result.json", current_results)
-                        reset_downstream("clips")
-                        st.success("视频任务已更新。")
-                        st.rerun()
+                        _submit_scene_video_task(frame, video_prompt)
+                        should_rerun_after_submit = True
                     except Exception as exc:
                         _display_generation_error("视频任务提交失败", exc)
+
+    if should_rerun_after_submit:
+        st.rerun()
 
 
 def render_audio_tab() -> None:
@@ -2086,7 +2169,7 @@ def render_export_tab() -> None:
         meta_read_only = is_meta_read_only_mode()
         preflight = _meta_upload_preflight()
         resolved_meta = _coerce_dict(preflight.get("resolved"))
-        st.video(final_result["video_path"])
+        render_preview_video(final_result["video_path"])
         st.caption(final_result["video_path"])
         subtitle_path = str(final_result.get("subtitle_path") or "").strip()
         if final_result.get("subtitles_burned"):
@@ -2366,7 +2449,7 @@ def render_ad_ops_tab() -> None:
                 st.markdown("#### 视频预览")
                 storage_uri = str(selected_material.get("storage_uri") or "").strip()
                 if storage_uri and Path(storage_uri).exists():
-                    st.video(storage_uri)
+                    render_preview_video(storage_uri)
                     st.caption(storage_uri)
                 else:
                     st.info("当前素材没有可播放的视频文件。")

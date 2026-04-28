@@ -21,6 +21,7 @@ from generation_prompt_builder import compose_generation_prompt
 from media_pipeline import generate_local_clip, probe_media_duration
 from prompt_overrides import apply_override
 from product_reference_images import (
+    get_product_reference_bundle,
     get_product_reference_images,
     get_product_reference_signature,
     get_product_visual_structure_json,
@@ -491,6 +492,14 @@ def _should_use_reference_images() -> bool:
     return VIDEO_REFERENCE_MODE in {"image", "images", "hybrid"}
 
 
+def _video_supports_extra_reference_images(aspect_ratio: str) -> bool:
+    # Live verification on 2026-04-28 with this project's Google Gemini API key:
+    # text-only works, image + bytesBase64Encoded works, image + lastFrame works,
+    # but referenceImages still returns INVALID_ARGUMENT / unsupported use case.
+    # Keep this disabled until the account/API combination actually accepts it.
+    return False
+
+
 def _compact_value_list(value: Any, limit: int) -> list[str]:
     if isinstance(value, (list, tuple, set)):
         return [str(item).strip() for item in value if str(item).strip()][:limit]
@@ -516,6 +525,226 @@ def _visuals_summary(visuals: Dict[str, Any] | None) -> str:
     return " ".join(part for part in parts if part)
 
 
+def _scene_signal_text(
+    scene_info: str,
+    visuals: Dict[str, Any] | None = None,
+    continuity: Dict[str, Any] | None = None,
+) -> str:
+    parts = [str(scene_info or "")]
+    if isinstance(visuals, dict):
+        parts.append(json.dumps(visuals, ensure_ascii=False))
+    if isinstance(continuity, dict):
+        parts.append(json.dumps(continuity, ensure_ascii=False))
+    return " ".join(parts).lower()
+
+
+def _scene_requests_video_self_drive(
+    scene_info: str,
+    visuals: Dict[str, Any] | None = None,
+    continuity: Dict[str, Any] | None = None,
+) -> bool:
+    haystack = _scene_signal_text(scene_info, visuals, continuity)
+    return any(
+        token in haystack
+        for token in [
+            "joystick",
+            "self-drive",
+            "self drive",
+            "self-operated",
+            "self operated",
+            "right hand",
+            "driving himself",
+            "drives himself",
+            "moves independently",
+            "navigating",
+            "maneuvers",
+            "precision pinch",
+            "右手",
+            "摇杆",
+            "自驾",
+            "自行操控",
+        ]
+    )
+
+
+def _scene_has_rear_camera_signal(
+    scene_info: str,
+    visuals: Dict[str, Any] | None = None,
+    continuity: Dict[str, Any] | None = None,
+) -> bool:
+    haystack = _scene_signal_text(scene_info, visuals, continuity)
+    return any(
+        token in haystack
+        for token in [
+            "from behind",
+            "behind and to the right",
+            "behind and slightly to the side",
+            "rear three-quarter",
+            "rear 3/4",
+            "back view",
+            "rear view",
+            "follow from behind",
+            "跟在后面",
+            "从后方",
+            "背面",
+            "后背视角",
+            "后方跟拍",
+        ]
+    )
+
+
+def _scene_requests_video_backrest_logo(
+    scene_info: str,
+    visuals: Dict[str, Any] | None = None,
+    continuity: Dict[str, Any] | None = None,
+) -> bool:
+    haystack = _scene_signal_text(scene_info, visuals, continuity)
+    return any(
+        token in haystack
+        for token in [
+            "anywell logo",
+            "backrest pocket logo",
+            "rear logo visible",
+            "rear backrest logo visible",
+            "backrest logo faces camera",
+            "logo visible on backrest",
+            "口袋 logo",
+            "靠背 logo",
+            "后背 logo",
+        ]
+    )
+
+
+def _scene_requests_video_chassis_detail(
+    scene_info: str,
+    visuals: Dict[str, Any] | None = None,
+    continuity: Dict[str, Any] | None = None,
+) -> bool:
+    haystack = _scene_signal_text(scene_info, visuals, continuity)
+    return any(
+        token in haystack
+        for token in [
+            "x-brace",
+            "x brace",
+            "under-seat",
+            "under seat",
+            "chassis",
+            "undercarriage",
+            "motor",
+            "hub",
+            "rear wheel connection",
+            "底盘",
+            "座椅下方",
+            "后轮内侧",
+            "交叉支撑",
+            "电机",
+            "轮毂",
+        ]
+    )
+
+
+def _video_scene_guardrail(
+    scene_info: str,
+    visuals: Dict[str, Any] | None = None,
+    continuity: Dict[str, Any] | None = None,
+) -> str:
+    expect_self_drive = _scene_requests_video_self_drive(scene_info, visuals, continuity)
+    rear_camera_signal = _scene_has_rear_camera_signal(scene_info, visuals, continuity)
+    expect_backrest_logo = _scene_requests_video_backrest_logo(scene_info, visuals, continuity)
+    expect_chassis_detail = _scene_requests_video_chassis_detail(scene_info, visuals, continuity)
+
+    instructions = [
+        "视频级硬约束：把分镜图当成镜头第一帧和唯一视角锚点，保持同一侧的构图关系与镜头朝向，不要在生成过程中绕到新的背面角度。",
+    ]
+    if expect_self_drive:
+        instructions.append(
+            "视频级硬约束：这是自驾镜头，整个片段都要看见乘坐者前胸或柔和侧脸，以及右前臂和右手在右侧摇杆上的自然 precision pinch；不要把操控手完全挡住。"
+        )
+    if expect_backrest_logo:
+        instructions.append(
+            "视频级硬约束：如果确实需要看到靠背 logo，也只能是轻微侧后 3/4 的短暂可见状态，不能变成正后背 hero shot，不能持续暴露后下方结构。"
+        )
+    else:
+        instructions.append(
+            "视频级硬约束：禁止 full rear view、centered rear follow shot、rear hero shot 或从骑手正后方持续跟拍；不要把骑手背面作为主画面。"
+        )
+    if rear_camera_signal and not expect_backrest_logo:
+        instructions.append(
+            "如果原始脚本或镜头说明里提到 behind、from behind 或 behind-right tracking，只把它理解成轻微偏后的侧向跟拍，仍然必须保持前胸/侧脸/摇杆手可见，不能真的转成正后背视角。"
+        )
+    instructions.append(
+        "视频级硬约束：除允许的后背口袋区域外，不要在底盘、电机壳、后下方圆筒、侧板、扶手或附件上生成 AnyWell 字样或任何新 logo。"
+    )
+    if expect_chassis_detail:
+        instructions.append(
+            "视频级硬约束：如果座椅下方、后轮内侧或底盘连接处可见，必须保持开放式 X 形底盘、真实连接支架和轻盈的下部管架；不要改成整块黑盒、圆筒电池箱、实心壳体或带 logo 的后下方装置。"
+        )
+    else:
+        instructions.append(
+            "视频级硬约束：不要在座椅后下方凭空生成黑盒、圆筒、外露电池箱、粗大壳体或带 logo 的后下方结构；下部关系保持轻盈开放。"
+        )
+    return "\n".join(instructions)
+
+
+def _video_language_hard_constraint(meta: Dict[str, Any] | None = None) -> str:
+    language = str((meta or {}).get("language") or "").strip().lower()
+    if language in {"english", "en", "en-us", "en-gb", "english only"}:
+        return (
+            "Language hard constraint: all narration, dialogue, captions, signage, and readable text must be English only. "
+            "Do not generate Chinese speech, Chinese subtitles, Chinese characters, pinyin, or bilingual output. "
+            "Do not burn subtitles into the video unless the brief explicitly asks for subtitles."
+        )
+    return ""
+
+
+def _select_video_product_reference_paths(
+    scene_info: str,
+    visuals: Dict[str, Any] | None = None,
+    provided_paths: Optional[list[str]] = None,
+    limit: int = 3,
+) -> list[str]:
+    if limit <= 0:
+        return []
+
+    cleaned_provided = [
+        str(Path(path).resolve())
+        for path in (provided_paths or [])
+        if str(path or "").strip() and Path(path).exists()
+    ]
+    bundle = get_product_reference_bundle(limit=max(limit + 1, 4))
+    overview = [str(path).strip() for path in bundle.get("overview", []) if str(path).strip()]
+    detail = [str(path).strip() for path in bundle.get("detail", []) if str(path).strip()]
+    chassis = [str(path).strip() for path in bundle.get("chassis", []) if str(path).strip()]
+
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    def add_paths(paths: list[str]) -> None:
+        for raw in paths:
+            normalized = str(Path(raw).resolve())
+            if normalized in seen or not Path(normalized).exists():
+                continue
+            seen.add(normalized)
+            selected.append(normalized)
+            if len(selected) >= limit:
+                return
+
+    add_paths(overview[:1])
+    if _scene_requests_video_self_drive(scene_info, visuals):
+        add_paths(detail[:1])
+    if _scene_requests_video_chassis_detail(scene_info, visuals):
+        add_paths(chassis[:1])
+    if len(selected) < limit:
+        add_paths(detail[:1])
+    if len(selected) < limit:
+        add_paths(chassis[:1])
+    if len(selected) < limit:
+        add_paths([str(path).strip() for path in bundle.get("all", []) if str(path).strip()])
+    if len(selected) < limit:
+        add_paths(cleaned_provided)
+    return selected[:limit]
+
+
 def _truncate_to_max_bytes(text: str, max_bytes: int) -> str:
     encoded = text.encode("utf-8")
     if len(encoded) <= max_bytes:
@@ -529,6 +758,7 @@ def _build_compact_veo_prompt(
     scene_audio: Dict[str, Any] | None,
     aspect_ratio: str,
     duration_seconds: int,
+    meta: Dict[str, Any] | None = None,
 ) -> str:
     voiceover = ""
     if isinstance(scene_audio, dict):
@@ -537,14 +767,19 @@ def _build_compact_veo_prompt(
     blocks = [
         f"基于分镜图生成一段 {duration_seconds} 秒、画幅 {aspect_ratio} 的真人实拍感视频。",
         "保持同一人物、同一台 AnyWell 轮椅、同一套服装和同一路线逻辑。",
+        "把分镜图当成第一帧和唯一视角锚点，不要绕到新的背面角度。",
         "只表现一个简单明确的前进行为，摇杆操控自然，轮子滚动真实。",
-        "优先前侧或侧向跟拍角度，让轮椅主体清楚可读。",
-        "如果能看到靠背上半部布面，AnyWell 标识只能在那里。",
-        "后下方和座椅下方保持轻盈自然；如果后部导轮可见，它们必须短、正、稳。",
+        "保持前侧或侧前 3/4 的可读角度，让前胸/柔和侧脸和右侧摇杆手可见，不要变成正后背跟拍。",
+        "除非明确要求后背口袋正面展示，否则禁止 centered rear follow shot、rear hero shot 和全背面主画面。",
+        "只有允许的后背口袋区域才可出现 AnyWell 标识；不要在底盘、电机壳、后下方圆筒、侧板或附件上生成 logo。",
+        "座椅下方和后下方保持开放轻盈；不要变成黑盒、电池箱、圆筒壳体或错误后驱总成。",
         f"动作：{_single_line(scene_info, 120)}",
         f"镜头路径：{_single_line(_visuals_summary(visuals), 84)}",
-        "注意避免：形变、场景重置、侧边乱出标识。",
+        "注意避免：形变、场景重置、背面漂移、底盘黑盒、logo 跑错位置。",
     ]
+    language_constraint = _video_language_hard_constraint(meta)
+    if language_constraint:
+        blocks.append(language_constraint)
     if voiceover:
         blocks.append(f"音频氛围：{voiceover}")
     return "\n".join(block for block in blocks if block.strip())
@@ -557,6 +792,7 @@ def _fit_veo_prompt(
     scene_audio: Dict[str, Any] | None,
     aspect_ratio: str,
     duration_seconds: int,
+    meta: Dict[str, Any] | None = None,
 ) -> tuple[str, bool]:
     prompt = str(prompt or "").strip()
     if len(prompt.encode("utf-8")) <= GOOGLE_VEO_PROMPT_MAX_CHARS:
@@ -568,6 +804,7 @@ def _fit_veo_prompt(
         scene_audio=scene_audio,
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
+        meta=meta,
     )
     if len(compact_prompt.encode("utf-8")) <= GOOGLE_VEO_PROMPT_MAX_CHARS:
         return compact_prompt, True
@@ -630,7 +867,13 @@ def generate_video_from_image_url(
     if last_frame_part:
         instance["lastFrame"] = last_frame_part
     if reference_parts:
-        instance["referenceImages"] = reference_parts
+        instance["referenceImages"] = [
+            {
+                "referenceType": "asset",
+                "image": reference_part,
+            }
+            for reference_part in reference_parts
+        ]
 
     payload_json = {
         "instances": [instance],
@@ -856,10 +1099,17 @@ def _build_video_prompt(
         product_visual_structure=resolved_product_visual_structure,
         allow_ai_composer=allow_ai_composer,
     )
-    return apply_override(
-        prompt_composition["prompt"],
-        "video_prompt_append",
+    prompt_text = str(prompt_composition["prompt"] or "").strip() or str(prompt_composition["fallback_prompt"] or "").strip()
+    prompt_text = "\n\n".join(
+        part
+        for part in [
+            prompt_text,
+            _video_scene_guardrail(scene_info, visuals, continuity),
+            _video_language_hard_constraint(meta),
+        ]
+        if str(part or "").strip()
     )
+    return apply_override(prompt_text, "video_prompt_append")
 
 
 def build_video_prompt(
@@ -931,6 +1181,17 @@ def generate_video_from_image_path(
             hero_product_name=hero_product_name,
             product_reference_signature=product_reference_signature,
             product_visual_structure=product_visual_structure,
+            allow_ai_composer=False,
+        )
+    else:
+        prompt_text = "\n\n".join(
+            part
+            for part in [
+                prompt_text,
+                _video_scene_guardrail(scene_info, visuals, continuity),
+                _video_language_hard_constraint(meta),
+            ]
+            if str(part or "").strip()
         )
     prompt_text, prompt_was_compacted = _fit_veo_prompt(
         prompt_text,
@@ -939,12 +1200,21 @@ def generate_video_from_image_path(
         scene_audio,
         aspect_ratio,
         requested_duration,
+        meta=meta,
     )
 
     product_reference_urls: list[str] = []
     allow_product_reference_images_in_video = bool((meta or {}).get("allow_product_reference_images_in_video", False))
-    if include_product_reference_images and allow_product_reference_images_in_video:
-        reference_source_paths = product_reference_paths or get_product_reference_images(limit=1 if strict_reference_only else 2)
+    video_reference_strategy = str((meta or {}).get("video_reference_strategy", "") or "").strip().lower()
+    auto_anchor_refs = video_reference_strategy == "storyboard_only"
+    should_attach_product_refs = (include_product_reference_images and allow_product_reference_images_in_video) or auto_anchor_refs
+    if should_attach_product_refs:
+        reference_source_paths = _select_video_product_reference_paths(
+            scene_info,
+            visuals,
+            provided_paths=product_reference_paths or get_product_reference_images(limit=3),
+            limit=2 if auto_anchor_refs else (1 if strict_reference_only else 3),
+        )
         product_reference_urls = [
             _file_to_data_url(path)
             for path in reference_source_paths
@@ -965,15 +1235,43 @@ def generate_video_from_image_path(
 
     remote_errors = []
     remote_attempts = []
+    prepared_image_url = _file_to_data_url(prepared_path)
+    prepared_last_frame_url = _file_to_data_url(last_frame) if last_frame else None
+    supported_reference_urls = product_reference_urls if _video_supports_extra_reference_images(aspect_ratio) else []
+
     if _should_use_reference_images():
-        remote_attempts.append(
+        candidate_attempts = [
             {
-                "image_url": _file_to_data_url(prepared_path),
-                "extra_image_urls": product_reference_urls,
-                "last_frame_url": _file_to_data_url(last_frame) if last_frame else None,
+                "image_url": prepared_image_url,
+                "extra_image_urls": supported_reference_urls,
+                "last_frame_url": prepared_last_frame_url,
                 "prompt": prompt_text,
-            }
-        )
+            },
+            {
+                "image_url": prepared_image_url,
+                "extra_image_urls": [],
+                "last_frame_url": prepared_last_frame_url,
+                "prompt": prompt_text,
+            },
+            {
+                "image_url": prepared_image_url,
+                "extra_image_urls": [],
+                "last_frame_url": None,
+                "prompt": prompt_text,
+            },
+        ]
+        seen_video_attempts: set[tuple[str, tuple[str, ...], str, str]] = set()
+        for attempt in candidate_attempts:
+            attempt_signature = (
+                str(attempt["image_url"] or ""),
+                tuple(attempt.get("extra_image_urls") or []),
+                str(attempt.get("last_frame_url") or ""),
+                str(attempt["prompt"] or ""),
+            )
+            if attempt_signature in seen_video_attempts:
+                continue
+            seen_video_attempts.add(attempt_signature)
+            remote_attempts.append(attempt)
     if not strict_reference_only and GOOGLE_VEO_ALLOW_PROMPT_FALLBACKS:
         remote_attempts.append(
             {
@@ -1000,6 +1298,7 @@ def generate_video_from_image_path(
                     hero_product_name=hero_product_name,
                     product_reference_signature=product_reference_signature,
                     product_visual_structure=product_visual_structure,
+                    allow_ai_composer=False,
                 ),
             }
         )
