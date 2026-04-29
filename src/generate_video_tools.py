@@ -5,6 +5,7 @@ from collections import deque
 import json
 import mimetypes
 import os
+import http.client
 import threading
 import time
 import urllib.error
@@ -128,6 +129,16 @@ GOOGLE_VEO_PROMPT_MAX_CHARS = max(
             str(VIDEO_RUNTIME.get("google_veo_prompt_max_chars") or 950),
         ).strip()
         or 950
+    ),
+)
+GOOGLE_VEO_DOWNLOAD_MAX_ATTEMPTS = max(
+    1,
+    int(
+        os.getenv(
+            "GOOGLE_VEO_DOWNLOAD_MAX_ATTEMPTS",
+            str(VIDEO_RUNTIME.get("google_veo_download_max_attempts") or 4),
+        ).strip()
+        or 4
     ),
 )
 
@@ -652,6 +663,7 @@ def _video_scene_guardrail(
     rear_camera_signal = _scene_has_rear_camera_signal(scene_info, visuals, continuity)
     expect_backrest_logo = _scene_requests_video_backrest_logo(scene_info, visuals, continuity)
     expect_chassis_detail = _scene_requests_video_chassis_detail(scene_info, visuals, continuity)
+    is_first_scene = not (continuity if isinstance(continuity, dict) else {}).get("previous_scene")
 
     instructions = [
         "视频级硬约束：把分镜图当成镜头第一帧和唯一视角锚点，保持同一侧的构图关系与镜头朝向，不要在生成过程中绕到新的背面角度。",
@@ -675,6 +687,16 @@ def _video_scene_guardrail(
     instructions.append(
         "视频级硬约束：除允许的后背口袋区域外，不要在底盘、电机壳、后下方圆筒、侧板、扶手或附件上生成 AnyWell 字样或任何新 logo。"
     )
+    instructions.append(
+        "视频级硬约束：如果轮椅后方在运动中短暂可见，必须沿用分镜图和真实后视参考的后方结构：黑色布面靠背、短后推把手、后背口袋处的白色 AnyWell 布标、开放式下部 X 形管架和真实后轮连接件；不要生成整块黑色后背箱、后下方大电池包、大圆筒、额外控制面板、错误 logo 或侧边 logo。"
+    )
+    if is_first_scene:
+        instructions.append(
+            "第一段视频硬约束：保留分镜图里的后右侧 3/4 跟拍关系，前 2-3 秒必须能看到轮椅真实后背的一部分和后轮/底盘连接关系；不要把镜头完全转到前侧导致后背消失，也不要变成正后方居中展示。"
+        )
+        instructions.append(
+            "第一段视频错误规避：轮椅背后、座椅后下方和后轮之间不能出现任何台子、桌板、置物平台、托盘、货架、行李箱、方形后背箱、外挂电池盒、支撑架或大块矩形附加物；这些都不是产品结构。"
+        )
     if expect_chassis_detail:
         instructions.append(
             "视频级硬约束：如果座椅下方、后轮内侧或底盘连接处可见，必须保持开放式 X 形底盘、真实连接支架和轻盈的下部管架；不要改成整块黑盒、圆筒电池箱、实心壳体或带 logo 的后下方装置。"
@@ -763,19 +785,30 @@ def _build_compact_veo_prompt(
     voiceover = ""
     if isinstance(scene_audio, dict):
         voiceover = _single_line(scene_audio.get("voice_over") or scene_audio.get("text") or "", 140)
+    rear_camera_signal = _scene_has_rear_camera_signal(scene_info, visuals, None)
+    view_constraint = (
+        "保持分镜图里的后右侧或侧后 3/4 跟拍角度，前 2-3 秒能看到轮椅后背布面、后背口袋、短后推把手和后轮/底盘连接关系；不要完全转到前侧导致背面消失，也不要变成正后方居中 hero shot。"
+        if rear_camera_signal
+        else "保持前侧或侧前 3/4 的可读角度，让前胸/柔和侧脸和右侧摇杆手可见，不要变成正后背跟拍。"
+    )
+    rear_logo_constraint = (
+        "允许后背口袋区域出现产品自带 AnyWell 布标；禁止在侧板、底盘、电机壳、后下方圆筒或附件上生成 logo。"
+        if rear_camera_signal
+        else "只有允许的后背口袋区域才可出现 AnyWell 标识；不要在底盘、电机壳、后下方圆筒、侧板或附件上生成 logo。"
+    )
 
     blocks = [
         f"基于分镜图生成一段 {duration_seconds} 秒、画幅 {aspect_ratio} 的真人实拍感视频。",
         "保持同一人物、同一台 AnyWell 轮椅、同一套服装和同一路线逻辑。",
         "把分镜图当成第一帧和唯一视角锚点，不要绕到新的背面角度。",
         "只表现一个简单明确的前进行为，摇杆操控自然，轮子滚动真实。",
-        "保持前侧或侧前 3/4 的可读角度，让前胸/柔和侧脸和右侧摇杆手可见，不要变成正后背跟拍。",
-        "除非明确要求后背口袋正面展示，否则禁止 centered rear follow shot、rear hero shot 和全背面主画面。",
-        "只有允许的后背口袋区域才可出现 AnyWell 标识；不要在底盘、电机壳、后下方圆筒、侧板或附件上生成 logo。",
-        "座椅下方和后下方保持开放轻盈；不要变成黑盒、电池箱、圆筒壳体或错误后驱总成。",
+        view_constraint,
+        "禁止 centered rear follow shot、rear hero shot 和全背面主画面；只允许自然侧后跟拍。",
+        rear_logo_constraint,
+        "座椅下方和后下方保持开放轻盈；不要变成黑盒、电池箱、圆筒壳体、台子、桌板、托盘、置物架、支撑平台或错误后驱总成。",
         f"动作：{_single_line(scene_info, 120)}",
         f"镜头路径：{_single_line(_visuals_summary(visuals), 84)}",
-        "注意避免：形变、场景重置、背面漂移、底盘黑盒、logo 跑错位置。",
+        "注意避免：形变、场景重置、背面消失、背面漂移、后方台子/平台、底盘黑盒、logo 跑错位置。",
     ]
     language_constraint = _video_language_hard_constraint(meta)
     if language_constraint:
@@ -942,36 +975,67 @@ def wait_for_video_completion(
         time.sleep(poll_interval)
 
 
+def _download_video_bytes(video_url: str) -> bytes:
+    last_error: Exception | None = None
+    for attempt_index in range(1, GOOGLE_VEO_DOWNLOAD_MAX_ATTEMPTS + 1):
+        _throttle_google_request()
+        request = urllib.request.Request(
+            video_url,
+            headers={
+                "x-goog-api-key": _google_api_key(),
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=VIDEO_HTTP_TIMEOUT_SECONDS) as response:
+                content_length = int(response.headers.get("Content-Length") or 0)
+                chunks: list[bytes] = []
+                total_read = 0
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total_read += len(chunk)
+                payload = b"".join(chunks)
+                if content_length and len(payload) < content_length:
+                    raise http.client.IncompleteRead(payload, content_length - len(payload))
+                if len(payload) <= 0:
+                    raise RuntimeError("Downloaded video payload is empty.")
+                return payload
+        except Exception as exc:
+            last_error = exc
+            if attempt_index >= GOOGLE_VEO_DOWNLOAD_MAX_ATTEMPTS:
+                break
+            time.sleep(4.0 * attempt_index)
+    raise RuntimeError(f"Unable to download completed video from Google Veo URL: {video_url}. Error: {last_error}") from last_error
+
+
 def _download_completed_video(video_id: str, video_url: str, clips_dir: Path) -> Dict[str, Any]:
     video_name = f"{uuid.uuid4()}.mp4"
     video_path = clips_dir / video_name
-    _throttle_google_request()
-    request = urllib.request.Request(
-        video_url,
-        headers={
-            "x-goog-api-key": _google_api_key(),
-            "User-Agent": "Mozilla/5.0",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=VIDEO_HTTP_TIMEOUT_SECONDS) as response:
-            video_bytes = response.read()
-    except Exception as exc:
-        raise RuntimeError(f"Unable to download completed video from Google Veo URL: {video_url}. Error: {exc}") from exc
-    video_path.write_bytes(video_bytes)
+    tmp_path = video_path.with_suffix(video_path.suffix + ".part")
+    video_bytes = _download_video_bytes(video_url)
+    tmp_path.write_bytes(video_bytes)
 
-    cap = cv2.VideoCapture(str(video_path))
+    cap = cv2.VideoCapture(str(tmp_path))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if frame_count <= 0:
+        cap.release()
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Downloaded Google Veo video is not readable or has no frames: {video_url}")
     last_frame_index = frame_count - 1 if frame_count > 0 else 0
     cap.set(cv2.CAP_PROP_POS_FRAMES, last_frame_index)
     ok, frame = cap.read()
     cap.release()
+    if not ok or frame is None:
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Downloaded Google Veo video could not provide a last frame: {video_url}")
+    tmp_path.replace(video_path)
 
     last_frame_path = clips_dir / f"{video_path.stem}_last_frame.jpg"
-    if ok and frame is not None:
-        cv2.imwrite(str(last_frame_path), frame)
-    else:
-        last_frame_path = Path("")
+    if not cv2.imwrite(str(last_frame_path), frame):
+        raise RuntimeError(f"Unable to write last frame for downloaded Google Veo video: {video_path}")
 
     actual_duration_seconds = probe_media_duration(str(video_path))
     return {

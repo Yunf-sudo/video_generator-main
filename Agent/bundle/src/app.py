@@ -740,20 +740,20 @@ def _previous_video_reference_frame(scene_number: int) -> str | None:
         return None
     previous_key = str(scene_number - 1)
     previous_result = _coerce_dict(st.session_state.get("video_result", {})).get(previous_key, {})
-    if isinstance(previous_result, dict):
+    if isinstance(previous_result, dict) and _is_ready_remote_clip(previous_result):
         previous_last_frame = str(previous_result.get("last_frame_path") or "").strip()
         if previous_last_frame:
             return previous_last_frame
-    previous_storyboard = {
-        str(frame.get("scene_number")): frame
-        for frame in ordered_storyboard()
-        if isinstance(frame, dict)
-    }.get(previous_key, {})
-    if isinstance(previous_storyboard, dict):
-        saved_path = str(previous_storyboard.get("saved_path") or "").strip()
-        if saved_path:
-            return saved_path
     return None
+
+
+def _is_ready_remote_clip(result: dict | None) -> bool:
+    data = _coerce_dict(result)
+    if str(data.get("generation_mode") or "").strip() != "remote":
+        return False
+    video_path = str(data.get("video_path") or "").strip()
+    last_frame_path = str(data.get("last_frame_path") or "").strip()
+    return bool(video_path and last_frame_path and Path(video_path).exists() and Path(last_frame_path).exists())
 
 
 def _upsert_storyboard_frame(frame: dict) -> None:
@@ -1096,8 +1096,16 @@ def submit_all_missing_clips() -> None:
     for frame in frames:
         scene_key = str(frame["scene_number"])
         existing = current_results.get(scene_key, {})
-        if existing.get("video_path") or existing.get("video_id"):
-            last_reference_frame = existing.get("last_frame_path") or frame["saved_path"]
+        existing_video_id = str(existing.get("video_id") or "").strip()
+        existing_mode = str(existing.get("generation_mode") or "").strip()
+        if _is_ready_remote_clip(existing):
+            last_reference_frame = existing.get("last_frame_path")
+            continue
+        if existing_video_id and not existing_video_id.startswith("local:") and existing_mode in {
+            "remote_pending",
+            "remote_download_failed",
+        }:
+            last_reference_frame = None
             continue
 
         scene_last_frame = None if scene_key in _video_previous_reference_disabled_scenes() else last_reference_frame
@@ -1116,7 +1124,7 @@ def submit_all_missing_clips() -> None:
             prompt_override=prompt_overrides.get(scene_key),
         )
         current_results[scene_key] = clip_result
-        last_reference_frame = frame["saved_path"]
+        last_reference_frame = clip_result.get("last_frame_path") if _is_ready_remote_clip(clip_result) else None
 
     st.session_state["video_result"] = current_results
     set_active_step("视频片段")
@@ -1134,16 +1142,33 @@ def resolve_all_pending_clips() -> None:
     for frame in ordered_storyboard():
         scene_key = str(frame["scene_number"])
         current = current_results.get(scene_key, {})
-        if current.get("video_path"):
-            last_reference_frame = current.get("last_frame_path") or last_reference_frame or frame["saved_path"]
+        if current.get("video_path") and _is_ready_remote_clip(current):
+            last_reference_frame = current.get("last_frame_path")
             continue
         if not current.get("video_id"):
+            last_reference_frame = None
             continue
         try:
             refreshed = get_video_path_from_video_id(current["video_id"])
-        except Exception:
+        except Exception as exc:
+            current_results[scene_key] = {
+                **current,
+                "generation_mode": "remote_download_failed",
+                "download_error": str(exc),
+                "last_frame_path": "",
+            }
+            last_reference_frame = None
+            continue
+
+        refreshed_status = str(refreshed.get("status") or "").strip().lower()
+        if not _is_ready_remote_clip(refreshed) and refreshed_status in {"running", "pending", "queued", "processing"}:
+            current_results[scene_key] = {**current, **refreshed}
+            last_reference_frame = None
+            continue
+
+        if not _is_ready_remote_clip(refreshed):
             scene_last_frame = None if scene_key in _video_previous_reference_disabled_scenes() else (
-                current.get("last_frame_path") or last_reference_frame
+                last_reference_frame if last_reference_frame and Path(last_reference_frame).exists() else None
             )
             refreshed = generate_video_from_image_path(
                 frame["saved_path"],
@@ -1161,7 +1186,7 @@ def resolve_all_pending_clips() -> None:
             )
         refreshed["planned_duration_seconds"] = current.get("planned_duration_seconds", frame.get("duration_seconds", 8))
         current_results[scene_key] = refreshed
-        last_reference_frame = refreshed.get("last_frame_path") or last_reference_frame or frame["saved_path"]
+        last_reference_frame = refreshed.get("last_frame_path") if _is_ready_remote_clip(refreshed) else None
     st.session_state["video_result"] = current_results
     set_active_step("视频片段")
     persist_run_json("video_result.json", current_results)

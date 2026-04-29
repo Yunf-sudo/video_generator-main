@@ -13,16 +13,33 @@ PRODUCT_REFERENCE_DIR_CANDIDATES = [
     PROJECT_ROOT.parent / "白底图",
     PROJECT_ROOT / "白底图",
 ]
+CURATED_REFERENCE_DIR_NAMES = [
+    "参考图",
+    "reference_images",
+    "product_reference_images",
+    "product_references",
+]
 CURATED_REFERENCE_PREFIX = "ChatGPT Image "
 EXPLICIT_CURATED_REFERENCE_BASENAMES = [
+    "正面.png",
+    "侧边图.png",
+    "后视图.png",
+    "把手.png",
+    "控制杆.png",
+    "d1.png",
+    "d2.png",
+    "chassis_overview_a.png",
+    "chassis_overview_b.png",
     "chassis_reference_sheet_clean.png",
+    "后轮与底盘连接.png",
     "rear_wheel_chassis_joint.png",
 ]
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 PRODUCT_VISUAL_EXCLUSION_RULES = (
     "广告生成约束：轮椅只能以正常展开、可骑乘的状态出现。"
     "后背上部结构要紧凑、真实，并与实物比例一致。"
-    "不要凭空生成额外杆件、天线状结构、拐杖状延伸件、夸张推手或任何从靠背后方高高竖起的金属件。"
+    "如果后推把手可见，必须参考“把手”细节图：它是轮椅后方给护理者推行使用的两侧短黑色橡胶握把，连接在靠背上角附近的弯曲金属管上，不是摇杆控制器，也不是用户手握的操控杆。"
+    "不要凭空生成额外杆件、天线状结构、拐杖状延伸件、夸张高耸推手或任何从靠背后方异常竖起的金属件。"
     "正式产品没有头枕或颈托。后背顶部如果可见，应是贴近靠背上角的短小结构，而不是高耸支撑件。"
     "不要出现后下方外挂电池、可拆电池、外露电池线、折叠状态、半折叠状态、收纳形态或折叠演示。"
     "如果参考图里存在后下方电池，请在广告画面里通过角度、人物遮挡、轮子、阴影或构图把它完全隐藏，同时保留其他产品身份特征。"
@@ -104,23 +121,30 @@ def _find_curated_reference_images() -> list[Path]:
     matches: list[Path] = []
     seen: set[Path] = set()
     for root in _reference_search_roots():
-        for basename in EXPLICIT_CURATED_REFERENCE_BASENAMES:
-            path = root / basename
-            if not path.is_file() or path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
-                continue
-            resolved = path.resolve()
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            matches.append(resolved)
-        for path in sorted(root.glob(f"{CURATED_REFERENCE_PREFIX}*")):
-            if not path.is_file() or path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
-                continue
-            resolved = path.resolve()
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            matches.append(resolved)
+        search_dirs = [root]
+        for dirname in CURATED_REFERENCE_DIR_NAMES:
+            candidate_dir = root / dirname
+            if candidate_dir.is_dir():
+                search_dirs.append(candidate_dir)
+
+        for search_dir in search_dirs:
+            for basename in EXPLICIT_CURATED_REFERENCE_BASENAMES:
+                path = search_dir / basename
+                if not path.is_file() or path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
+                    continue
+                resolved = path.resolve()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                matches.append(resolved)
+            for path in sorted(search_dir.glob(f"{CURATED_REFERENCE_PREFIX}*")):
+                if not path.is_file() or path.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
+                    continue
+                resolved = path.resolve()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                matches.append(resolved)
     return matches
 
 
@@ -206,12 +230,22 @@ def _legacy_reference_image_paths(limit: int = 5) -> list[str]:
 
 def _infer_curated_reference_role(path: Path) -> str:
     name = path.stem.lower()
-    if any(token in name for token in ["joystick", "controller", "control", "handle", "detail", "panel", "grip"]):
-        return "detail_sheet"
-    if "rear_wheel_chassis_joint" in name:
+    if "rear_wheel_chassis_joint" in name or any(token in name for token in ["后轮与底盘连接"]):
         return "chassis_detail"
-    if any(token in name for token in ["chassis_reference_sheet", "chassis_overview", "undercarriage", "underbody"]):
+    if any(token in name for token in ["chassis_reference_sheet", "chassis_overview", "undercarriage", "underbody", "d1", "d2"]):
         return "chassis_sheet"
+    if any(token in name for token in ["控制杆", "摇杆", "joystick", "controller", "control panel"]):
+        return "controller_detail"
+    if any(token in name for token in ["把手", "后把手", "推手", "push_handle", "push-handle", "caregiver_handle"]):
+        return "push_handle_detail"
+    if any(token in name for token in ["侧边", "侧面", "正左", "正右", "side"]):
+        return "side_view"
+    if any(token in name for token in ["后视", "正后", "背面", "rear", "back_view", "back-view"]):
+        return "rear_view"
+    if any(token in name for token in ["正面", "正前", "front"]):
+        return "front_view"
+    if any(token in name for token in ["handle", "detail", "panel", "grip"]):
+        return "detail_sheet"
     if any(token in name for token in ["overview", "sheet", "front", "back", "left", "right", "view"]):
         return "overview_sheet"
 
@@ -230,12 +264,19 @@ def _curated_reference_sort_key(path: Path) -> tuple:
     role = _infer_curated_reference_role(path)
     stats = _reference_image_stats(path)
     role_priority = {
-        "overview_sheet": 0,
-        "detail_sheet": 1,
-        "chassis_sheet": 2,
-        "chassis_detail": 3,
-        "generic": 4,
+        "front_view": 0,
+        "side_view": 1,
+        "rear_view": 2,
+        "overview_sheet": 3,
+        "controller_detail": 4,
+        "push_handle_detail": 5,
+        "detail_sheet": 6,
+        "chassis_detail": 7,
+        "chassis_sheet": 8,
+        "generic": 9,
     }
+    if role in {"front_view", "side_view", "rear_view", "controller_detail", "push_handle_detail"}:
+        return (role_priority[role], path.name.lower())
     if role == "overview_sheet":
         return (
             role_priority[role],
@@ -267,8 +308,21 @@ def get_product_reference_bundle(limit: int = 5) -> dict:
         curated_paths = sorted(curated_paths, key=_curated_reference_sort_key)
         selected = curated_paths[:limit] if limit > 0 else curated_paths
         roles = {str(path): _infer_curated_reference_role(path) for path in selected}
-        overview_paths = [str(path) for path in selected if roles[str(path)] == "overview_sheet"]
-        detail_paths = [str(path) for path in selected if roles[str(path)] == "detail_sheet"]
+        front_paths = [str(path) for path in selected if roles[str(path)] == "front_view"]
+        side_paths = [str(path) for path in selected if roles[str(path)] == "side_view"]
+        rear_paths = [str(path) for path in selected if roles[str(path)] == "rear_view"]
+        controller_paths = [str(path) for path in selected if roles[str(path)] == "controller_detail"]
+        push_handle_paths = [str(path) for path in selected if roles[str(path)] == "push_handle_detail"]
+        overview_paths = [
+            str(path)
+            for path in selected
+            if roles[str(path)] in {"front_view", "side_view", "rear_view", "overview_sheet"}
+        ]
+        detail_paths = [
+            str(path)
+            for path in selected
+            if roles[str(path)] in {"controller_detail", "push_handle_detail", "detail_sheet"}
+        ]
         chassis_overview_paths = [str(path) for path in selected if roles[str(path)] == "chassis_sheet"]
         chassis_detail_paths = [str(path) for path in selected if roles[str(path)] == "chassis_detail"]
         chassis_paths = chassis_overview_paths + chassis_detail_paths
@@ -286,6 +340,9 @@ def get_product_reference_bundle(limit: int = 5) -> dict:
             roles[str(overview_candidate)] = "overview_sheet"
             detail_paths = [path for path in detail_paths if path != str(overview_candidate)]
             generic_paths = [path for path in generic_paths if path != str(overview_candidate)]
+            front_paths = [path for path in front_paths if path != str(overview_candidate)]
+            side_paths = [path for path in side_paths if path != str(overview_candidate)]
+            rear_paths = [path for path in rear_paths if path != str(overview_candidate)]
 
         if not detail_paths:
             remaining = [str(path) for path in selected if str(path) not in overview_paths]
@@ -304,7 +361,12 @@ def get_product_reference_bundle(limit: int = 5) -> dict:
         return {
             "all": [str(path) for path in selected],
             "overview": overview_paths,
+            "front": front_paths,
+            "side": side_paths,
+            "rear": rear_paths,
             "detail": detail_paths,
+            "controller": controller_paths,
+            "push_handle": push_handle_paths,
             "chassis_overview": chassis_overview_paths,
             "chassis_detail": chassis_detail_paths,
             "chassis": chassis_paths,
@@ -318,7 +380,12 @@ def get_product_reference_bundle(limit: int = 5) -> dict:
     return {
         "all": legacy_paths,
         "overview": legacy_paths[:1],
+        "front": [],
+        "side": [],
+        "rear": [],
         "detail": [],
+        "controller": [],
+        "push_handle": [],
         "chassis_overview": [],
         "chassis_detail": [],
         "chassis": [],

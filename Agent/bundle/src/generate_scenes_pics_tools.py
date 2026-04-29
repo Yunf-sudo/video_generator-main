@@ -72,8 +72,9 @@ def _resolve_scene_generation_context(scene_info: dict) -> dict:
     prompt_context = build_prompt_context(meta)
     use_product_reference_images = bool(meta.get("use_product_reference_images", True))
     product_reference_limit = int(meta.get("product_reference_image_limit", 5) or 5)
-    product_reference_paths = get_product_reference_images(limit=product_reference_limit) if use_product_reference_images else []
-    product_reference_bundle = get_product_reference_bundle(limit=product_reference_limit) if use_product_reference_images else {"all": [], "overview": [], "detail": [], "generic": [], "roles": {}, "source": ""}
+    product_reference_scan_limit = max(product_reference_limit, 16)
+    product_reference_paths = get_product_reference_images(limit=product_reference_scan_limit) if use_product_reference_images else []
+    product_reference_bundle = get_product_reference_bundle(limit=product_reference_scan_limit) if use_product_reference_images else {"all": [], "overview": [], "front": [], "side": [], "rear": [], "detail": [], "controller": [], "push_handle": [], "generic": [], "roles": {}, "source": ""}
     product_reference_signature = meta.get("product_reference_signature")
     if product_reference_signature is None:
         product_reference_signature = get_product_reference_signature() if use_product_reference_images else ""
@@ -130,11 +131,11 @@ def _build_storyboard_scene_reference_paths(
     limit: int = 6,
 ) -> list[str]:
     # For same-person continuity, prior approved storyboard frames must take priority.
-    # Product identity references remain important, but should not crowd out continuity frames.
+    # Product identity references must come before generic uploaded references so the chair geometry is not crowded out.
     return merge_reference_images(
         continuity_reference_paths or [],
-        uploaded_reference_paths or [],
         product_reference_paths or [],
+        uploaded_reference_paths or [],
         limit=limit,
     )
 
@@ -184,6 +185,35 @@ def _scene_requests_front_caster_visible(scene_description: str, visuals: dict |
             "前轮",
             "前侧",
             "侧面",
+        ]
+    )
+
+
+def _scene_requests_side_wheel_reference(scene_description: str, visuals: dict | None) -> bool:
+    haystack = " ".join(
+        [
+            str(scene_description or ""),
+            json.dumps(visuals or {}, ensure_ascii=False),
+        ]
+    ).lower()
+    return any(
+        token in haystack
+        for token in [
+            "side",
+            "side profile",
+            "front-side",
+            "front side",
+            "side view",
+            "joystick-side",
+            "tracking",
+            "wheel",
+            "front caster",
+            "front wheel",
+            "rear wheel",
+            "轮子",
+            "侧边",
+            "侧面",
+            "侧向",
         ]
     )
 
@@ -256,10 +286,39 @@ def _scene_requests_chassis_detail(scene_description: str, visuals: dict | None)
     )
 
 
+def _scene_requests_rear_push_handle_detail(scene_description: str, visuals: dict | None) -> bool:
+    haystack = " ".join(
+        [
+            str(scene_description or ""),
+            json.dumps(visuals or {}, ensure_ascii=False),
+        ]
+    ).lower()
+    return any(
+        token in haystack
+        for token in [
+            "rear handle",
+            "push handle",
+            "caregiver handle",
+            "push grip",
+            "backrest handle",
+            "handle detail",
+            "rear three-quarter",
+            "rear 3/4",
+            "back view",
+            "rear view",
+            "后把手",
+            "推手",
+            "把手",
+            "后视",
+        ]
+    )
+
+
 def _build_scene_product_reference_plan(
     scene_description: str,
     visuals: dict | None,
     product_reference_bundle: dict | None,
+    scene_number: int | None = None,
 ) -> tuple[list[str], str]:
     bundle = product_reference_bundle if isinstance(product_reference_bundle, dict) else {}
     all_paths = [str(path).strip() for path in bundle.get("all", []) if str(path).strip()]
@@ -267,82 +326,128 @@ def _build_scene_product_reference_plan(
         return [], ""
 
     overview_paths = [str(path).strip() for path in bundle.get("overview", []) if str(path).strip()]
+    front_paths = [str(path).strip() for path in bundle.get("front", []) if str(path).strip()]
+    side_paths = [str(path).strip() for path in bundle.get("side", []) if str(path).strip()]
+    rear_paths = [str(path).strip() for path in bundle.get("rear", []) if str(path).strip()]
     detail_paths = [str(path).strip() for path in bundle.get("detail", []) if str(path).strip()]
+    controller_paths = [str(path).strip() for path in bundle.get("controller", []) if str(path).strip()]
+    push_handle_paths = [str(path).strip() for path in bundle.get("push_handle", []) if str(path).strip()]
+    other_detail_paths = [
+        path
+        for path in detail_paths
+        if path not in set(controller_paths) and path not in set(push_handle_paths)
+    ]
     chassis_overview_paths = [str(path).strip() for path in bundle.get("chassis_overview", []) if str(path).strip()]
     chassis_detail_paths = [str(path).strip() for path in bundle.get("chassis_detail", []) if str(path).strip()]
     chassis_paths = chassis_overview_paths + chassis_detail_paths
     generic_paths = [str(path).strip() for path in bundle.get("generic", []) if str(path).strip()]
 
     needs_joystick_detail = _scene_requests_controller_detail(scene_description, visuals)
+    needs_side_wheels = _scene_requests_side_wheel_reference(scene_description, visuals)
     needs_chassis_detail = _scene_requests_chassis_detail(scene_description, visuals)
     needs_backrest_logo = _scene_requests_backrest_logo(scene_description, visuals)
+    needs_push_handle_detail = _scene_requests_rear_push_handle_detail(scene_description, visuals) or needs_backrest_logo
+    is_first_scene = int(scene_number or 0) == 1
 
     strategy_notes: list[str] = []
     selected_product_paths: list[str]
+    max_product_refs = 4
 
     if overview_paths:
         strategy_notes.append(
-            "参考图分配规则：轮椅整体身份、车架比例、前后轮关系、侧壳、脚踏、靠背布面、后把手和 logo 位置，始终以多视角全景拼版为主锚点。"
+            "参考图分配规则：每个镜头只使用最相关的少量产品图作为强锚点，避免多视角互相污染。整车身份、车架比例、前后轮关系、侧壳、脚踏、靠背布面、后推把手和 logo 位置必须来自对应参考图。"
         )
         strategy_notes.append(
-            "如果镜头能看到前万向轮，就从全景拼版里的前轮细节继承真实前叉总成：保持黑色小前轮、真实叉架厚度、连接点和轮轴关系，不要画成自行车前叉、细杆脚轮或错误的双叉结构。"
+            "如果镜头能看到侧边轮组或前万向轮，优先参考“侧边图”：锁定大后轮银色轮毂和红色中心点、小黑色前万向轮、真实前叉总成、轮轴位置、胎宽和前后轮比例。"
         )
         strategy_notes.append(
-            "只有当镜头是后背正向或后侧 3/4，且后背口袋区域正面朝向镜头时，才允许看到参考产品自带的居中白色 AnyWell 布标；前侧或纯侧构图里不要读到任何 side logo。"
+            "只有当镜头是后背正向或后侧 3/4，且后背口袋区域正面朝向镜头时，才允许从“后视图”继承居中白色 AnyWell 布标；前侧或纯侧构图里不要读到任何 side logo。"
+        )
+    if push_handle_paths:
+        strategy_notes.append(
+            "“把手”参考图只表示轮椅后方给护理者推行用的后推把手：黑色橡胶握把、弯曲金属管和靠背上角连接件。它不是摇杆，不要把它移到右侧控制器位置，也不要把它夸张成高耸长杆。"
         )
     if chassis_paths:
         strategy_notes.append(
-            "如果镜头会看到底盘、后轮连接处、电机、交叉支撑管或座椅下方开放结构，就把底盘参考图当成局部硬锚点，锁定 X 形支撑管、后轮与底盘连接件、后轮内侧电机/轮毂关系和开放式底部结构。"
+            "如果镜头会看到后视、底盘、后轮连接处、电机、交叉支撑管或座椅下方开放结构，就把“后视图”和底盘参考图共同作为局部硬锚点，锁定 X 形支撑管、后轮与底盘连接件、后轮内侧电机/轮毂关系和开放式底部结构。"
+        )
+    if is_first_scene and rear_paths:
+        strategy_notes.append(
+            "第一段视频在运动生成中最容易短暂露出轮椅后方，所以无论脚本是前侧、侧向还是跟拍，都必须把“后视图”作为后方结构保险锚点：真实后背是黑色布面、上方短后推把手、后背口袋居中白色 AnyWell 布标、下方开放式管架和后轮连接结构；不要发明整块黑色电池盒、后下方大圆筒、额外面板或新的 logo。"
         )
 
-    if needs_joystick_detail and needs_chassis_detail and (detail_paths or chassis_paths):
+    if needs_backrest_logo and (rear_paths or chassis_paths or push_handle_paths):
         selected_product_paths = merge_reference_images(
-            detail_paths,
+            rear_paths,
+            push_handle_paths,
             chassis_detail_paths,
             chassis_overview_paths,
+            side_paths,
             overview_paths,
-            generic_paths,
-            limit=len(all_paths),
+            limit=max_product_refs,
         )
         strategy_notes.append(
-            "这个镜头同时涉及右手控制和底盘可见区域，所以优先锁定把手/摇杆细节与底盘结构，再由全景拼版维持整车比例。"
+            "这个镜头能看到后背或后侧，优先使用后视图锁定后背 logo、靠背口袋、底盘暴露关系和后推把手；侧边图只用于补充轮组比例，不允许在侧边生成 logo。"
         )
-    elif needs_joystick_detail and detail_paths:
+    elif needs_joystick_detail and needs_chassis_detail and (controller_paths or detail_paths or chassis_paths):
         selected_product_paths = merge_reference_images(
-            detail_paths,
+            controller_paths,
+            side_paths,
+            chassis_detail_paths,
+            chassis_overview_paths,
+            other_detail_paths,
+            overview_paths,
+            generic_paths,
+            limit=max_product_refs,
+        )
+        strategy_notes.append(
+            "这个镜头同时涉及右手控制和底盘可见区域，所以优先锁定控制杆细节、侧边轮组与底盘结构；不要把后推把手误当成摇杆。"
+        )
+    elif needs_joystick_detail and (controller_paths or detail_paths):
+        selected_product_paths = merge_reference_images(
+            controller_paths,
+            side_paths,
+            other_detail_paths,
             overview_paths,
             chassis_overview_paths,
             generic_paths,
-            limit=len(all_paths),
+            limit=max_product_refs,
         )
         strategy_notes.append(
-            "这个镜头能看到右手、摇杆或控制面板，所以把手/摇杆细节拼版必须作为局部强锚点：保持弯管把手、橡胶握把、摇杆帽形状、控制器外壳体块、按键布局和指示灯位置一致。"
+            "这个镜头能看到右手、摇杆或控制面板，所以“控制杆”参考图必须作为局部强锚点：保持摇杆帽形状、控制器外壳体块、按键布局和指示灯位置一致；“把手”图不是摇杆图。"
         )
     elif needs_chassis_detail and chassis_paths:
         selected_product_paths = merge_reference_images(
+            rear_paths,
             chassis_detail_paths,
             chassis_overview_paths,
+            side_paths,
             overview_paths,
             generic_paths,
-            limit=len(all_paths),
+            limit=max_product_refs,
         )
         strategy_notes.append(
-            "这个镜头会暴露底盘、后轮与底盘连接处或座椅下方开放结构，所以底盘参考图必须优先：保持 X 形交叉支撑管、后轮内侧电机位置、连接件角度、银灰/黑色金属件比例和开放式底部关系一致。"
+            "这个镜头会暴露底盘、后轮与底盘连接处或座椅下方开放结构，所以后视图和底盘参考图必须优先：保持 X 形交叉支撑管、后轮内侧电机位置、连接件角度、银灰/黑色金属件比例和开放式底部关系一致。"
         )
-    elif needs_backrest_logo:
-        selected_product_paths = merge_reference_images(overview_paths, chassis_overview_paths, generic_paths, limit=len(all_paths))
+    elif needs_push_handle_detail and push_handle_paths:
+        selected_product_paths = merge_reference_images(push_handle_paths, rear_paths, side_paths, overview_paths, limit=max_product_refs)
         strategy_notes.append(
-            "这个镜头能看到靠背上半部或侧后方，所以必须从全景拼版继承后背布面、AnyWell 标识位置和短小后把手关系。"
+            "这个镜头涉及后推把手，所以优先用“把手”参考图：后推把手应位于靠背后上角附近，保持短、黑色橡胶握把和真实连接件，不要把它移到侧边控制器。"
         )
-        if detail_paths:
-            strategy_notes.append(
-                "如果这个镜头并没有清楚看到摇杆和控制面板，就不要让把手/摇杆细节拼版喧宾夺主。"
-            )
+    elif needs_side_wheels and (side_paths or overview_paths):
+        selected_product_paths = merge_reference_images(side_paths, front_paths, rear_paths, overview_paths, limit=max_product_refs)
+        strategy_notes.append(
+            "这个镜头是侧向或轮组可见镜头，所以“侧边图”必须优先：尤其注意大后轮、小前轮、前叉、轮毂、胎宽、脚踏和侧壳比例；侧边不要出现 AnyWell logo。"
+        )
     elif overview_paths:
-        selected_product_paths = merge_reference_images(overview_paths, generic_paths, chassis_overview_paths, limit=len(all_paths))
-        if detail_paths:
+        selected_product_paths = merge_reference_images(side_paths, front_paths, rear_paths, overview_paths, generic_paths, limit=max_product_refs)
+        if controller_paths or detail_paths:
             strategy_notes.append(
-                "这不是摇杆近景时，不要为了呼应细节拼版而强行放大控制器或额外暴露手部近景。"
+                "这不是摇杆近景时，不要为了呼应控制杆参考图而强行放大控制器或额外暴露手部近景。"
+            )
+        if push_handle_paths:
+            strategy_notes.append(
+                "这不是后推把手近景时，不要为了呼应把手参考图而增加高耸推杆；只在靠背上角可见时保持短小真实。"
             )
         if chassis_paths:
             strategy_notes.append(
@@ -350,6 +455,13 @@ def _build_scene_product_reference_plan(
             )
     else:
         selected_product_paths = all_paths
+
+    if is_first_scene and rear_paths and not any(path in selected_product_paths for path in rear_paths):
+        selected_product_paths = merge_reference_images(
+            selected_product_paths[: max(0, max_product_refs - 1)],
+            rear_paths[:1],
+            limit=max_product_refs,
+        )
 
     return selected_product_paths, "\n".join(strategy_notes)
 
@@ -446,6 +558,18 @@ def _scene_specific_storyboard_guardrail(
             "场景级硬约束：这不是后背正向口袋视角，因此侧边、前侧和纯侧构图里绝对不要读到 AnyWell logo；靠背侧边应保持纯黑布面，不要出现可读字样。"
         )
     return "\n".join(instructions), expect_joystick_pinch_visible, expect_backrest_logo_visible
+
+
+def _first_scene_rear_view_guardrail(scene_number: int) -> str:
+    if int(scene_number or 0) != 1:
+        return ""
+    return (
+        "第一段分镜硬约束：画面必须是受控的后右侧 3/4 跟拍或后侧 3/4 构图，"
+        "让轮椅真实后背布面、后背口袋、短后推把手、开放式下部管架和后轮连接关系至少部分可见；"
+        "不要完全避开背面，也不要切成正后方居中 hero shot。"
+        "\n第一段错误规避：轮椅后方和座椅后下方绝对不能出现参考图里没有的台子、置物架、托盘、平台、桌板、行李箱、方形靠背箱、外接电池盒、支撑架或任何大块矩形附加物；"
+        "后方环境可以是住宅门口、院子路径、草坪和远处绿植，但不能有任何物体贴在轮椅背后或像轮椅附件。"
+    )
 
 
 def _scene_background_progression_guardrail(
@@ -606,6 +730,7 @@ def build_storyboard_scene_request(
         raise IndexError(f"Scene {scene_number} is out of range for storyboard generation.")
 
     scene = scenes[scene_index]
+    resolved_scene_number = int(scene.get("scene_number", scene_index + 1) or scene_index + 1)
     previous_scene = scenes[scene_index - 1] if scene_index > 0 else None
     next_scene = scenes[scene_index + 1] if scene_index + 1 < len(scenes) else None
     sanitized_scene_description = _sanitize_storyboard_scene_description(scene.get("scene_description", ""))
@@ -617,14 +742,16 @@ def build_storyboard_scene_request(
         sanitized_scene_visuals,
     )
     background_progression_guardrail = _scene_background_progression_guardrail(
-        int(scene.get("scene_number", scene_index + 1) or scene_index + 1),
+        resolved_scene_number,
         previous_scene,
         next_scene,
     )
+    first_scene_rear_view_guardrail = _first_scene_rear_view_guardrail(resolved_scene_number)
     selected_product_reference_paths, scene_reference_strategy = _build_scene_product_reference_plan(
         sanitized_scene_description,
         sanitized_scene_visuals,
         context.get("product_reference_bundle"),
+        scene_number=resolved_scene_number,
     )
     continuity = {
         "same_rider_default": context["continuity_rider_anchor"],
@@ -687,6 +814,7 @@ def build_storyboard_scene_request(
         filled_prompt = prompt_composition["fallback_prompt"]
     filled_prompt = _append_guardrail(filled_prompt, scene_reference_strategy)
     filled_prompt = _append_guardrail(filled_prompt, background_progression_guardrail)
+    filled_prompt = _append_guardrail(filled_prompt, first_scene_rear_view_guardrail)
     filled_prompt = _append_guardrail(filled_prompt, scene_specific_guardrail)
     filled_prompt = _append_guardrail(filled_prompt, STORYBOARD_TEXT_GUARDRAIL_APPEND)
     system_prompt = str(
@@ -698,6 +826,7 @@ def build_storyboard_scene_request(
     ).strip()
     system_prompt = _append_guardrail(system_prompt, scene_reference_strategy)
     system_prompt = _append_guardrail(system_prompt, background_progression_guardrail)
+    system_prompt = _append_guardrail(system_prompt, first_scene_rear_view_guardrail)
     system_prompt = _append_guardrail(system_prompt, scene_specific_guardrail)
     system_prompt = _append_guardrail(system_prompt, STORYBOARD_TEXT_GUARDRAIL_APPEND)
 
